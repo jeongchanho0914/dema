@@ -1,0 +1,712 @@
+<!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>Shadowbound: Retro RPG Battle</title> <style> :root { --bg: #09070d; --panel: #17111f; --panel-2: #21182b; --border: #6d536f; --text: #f2e7d5; --muted: #b7a8b9; --gold: #f0c75e; --red: #dc4f5d; --blue: #5599e6; --green: #5dbb72; --purple: #ad6ee8; --shadow: #050308; }
+
+{
+box-sizing: border-box;
+}
+
+html,
+body {
+margin: 0;
+min-height: 100%;
+background:
+radial-gradient(circle at 50% 10%, #24172e 0%, #0c0912 42%, #050407 100%);
+color: var(--text);
+font-family: "Courier New", monospace;
+overflow-x: hidden;
+}
+
+body {
+display: flex;
+justify-content: center;
+align-items: flex-start;
+padding: 18px;
+}
+
+button {
+font: inherit;
+}
+
+#game {
+width: min(1100px, 100%);
+position: relative;
+border: 4px solid #33263d;
+background: #0a080d;
+box-shadow:
+0 0 0 3px #09060c,
+0 0 0 6px #6e536e,
+0 20px 70px rgba(0, 0, 0, 0.8);
+}
+
+.title-bar {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 16px;
+padding: 10px 14px;
+background: linear-gradient(#261b30, #130e19);
+border-bottom: 3px solid #58415f;
+text-shadow: 2px 2px #000;
+}
+
+.game-title {
+color: #ead7c4;
+font-size: clamp(17px, 2.5vw, 27px);
+font-weight: 900;
+letter-spacing: 2px;
+}
+
+.title-sub {
+color: #927e98;
+font-size: 12px;
+text-align: right;
+}
+
+.canvas-wrap {
+position: relative;
+width: 100%;
+aspect-ratio: 16 / 9;
+overflow: hidden;
+background: #09070c;
+}
+
+canvas {
+display: block;
+width: 100%;
+height: 100%;
+image-rendering: pixelated;
+image-rendering: crisp-edges;
+}
+
+.canvas-wrap.screen-shake {
+animation: screenShake 0.28s steps(2, end);
+}
+
+@keyframes screenShake {
+0% { transform: translate(0, 0); }
+20% { transform: translate(-5px, 2px); }
+40% { transform: translate(5px, -3px); }
+60% { transform: translate(-3px, -2px); }
+80% { transform: translate(4px, 2px); }
+100% { transform: translate(0, 0); }
+}
+
+.hud {
+position: absolute;
+inset: 12px 12px auto 12px;
+display: grid;
+grid-template-columns: minmax(250px, 390px) minmax(250px, 390px);
+justify-content: space-between;
+gap: 24px;
+pointer-events: none;
+}
+
+.status-card {
+border: 3px solid rgba(154, 121, 157, 0.9);
+background: rgba(14, 9, 19, 0.91);
+padding: 9px 10px;
+box-shadow:
+inset 0 0 0 2px #21172a,
+4px 4px 0 rgba(0, 0, 0, 0.65);
+}
+
+.status-card.enemy {
+text-align: right;
+}
+
+.name-row,
+.value-row {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 8px;
+}
+
+.status-card.enemy .name-row,
+.status-card.enemy .value-row {
+flex-direction: row-reverse;
+}
+
+.name {
+font-size: clamp(13px, 2vw, 19px);
+font-weight: 900;
+color: #fff4df;
+text-shadow: 2px 2px #000;
+}
+
+.level {
+color: var(--gold);
+font-size: 12px;
+}
+
+.bar {
+position: relative;
+height: 16px;
+margin: 5px 0;
+border: 2px solid #0b080d;
+background: #332b36;
+box-shadow: inset 0 0 0 1px #645768;
+overflow: hidden;
+}
+
+.bar-fill {
+height: 100%;
+width: 50%;
+transition: width 0.35s steps(10, end);
+}
+
+.hp-fill {
+background: linear-gradient(#ed6671, #b92d43);
+}
+
+.mp-fill {
+background: linear-gradient(#6badf0, #356fc3);
+}
+
+.exp-fill {
+background: linear-gradient(#d68cff, #7d45b8);
+}
+
+.value-row {
+color: #d9cedb;
+font-size: 11px;
+}
+
+.enemy-status {
+min-height: 14px;
+color: #86d5ff;
+font-size: 11px;
+}
+
+.bottom-ui {
+display: grid;
+grid-template-columns: 1fr 360px;
+min-height: 190px;
+border-top: 4px solid #49364f;
+background: #100c15;
+}
+
+.log-panel {
+min-width: 0;
+padding: 12px;
+border-right: 3px solid #49364f;
+}
+
+.log-title {
+color: var(--gold);
+font-weight: 900;
+margin-bottom: 7px;
+letter-spacing: 1px;
+}
+
+#battleLog {
+height: 135px;
+overflow-y: auto;
+padding: 9px;
+border: 2px solid #302338;
+background: #08060a;
+color: #d8ccd9;
+font-size: 13px;
+line-height: 1.45;
+scrollbar-color: #5b4461 #151019;
+}
+
+.log-entry {
+margin-bottom: 4px;
+}
+
+.log-entry.player {
+color: #92c9ff;
+}
+
+.log-entry.enemy {
+color: #ff9a9f;
+}
+
+.log-entry.good {
+color: #8ee099;
+}
+
+.log-entry.gold {
+color: #f5d36e;
+}
+
+.log-entry.system {
+color: #c7a9df;
+}
+
+.command-panel {
+display: flex;
+flex-direction: column;
+padding: 11px;
+background: linear-gradient(135deg, #17111e, #0b080f);
+}
+
+.command-header {
+display: flex;
+align-items: center;
+justify-content: space-between;
+color: #e9d9c7;
+margin-bottom: 8px;
+font-weight: 900;
+}
+
+.turn-indicator {
+color: #81c9f3;
+font-size: 11px;
+}
+
+#commandGrid,
+#subMenu {
+display: grid;
+grid-template-columns: repeat(2, 1fr);
+gap: 7px;
+}
+
+.command-btn,
+.sub-btn,
+.shop-btn,
+.modal-btn {
+position: relative;
+min-height: 43px;
+padding: 8px 10px;
+color: #f2e7d5;
+border: 2px solid #68506d;
+background: linear-gradient(#2c2035, #18111f);
+box-shadow:
+inset 0 0 0 1px #100b15,
+3px 3px 0 #050307;
+cursor: pointer;
+text-align: left;
+text-transform: uppercase;
+transition: transform 0.08s, filter 0.08s;
+}
+
+.command-btn:hover:not(:disabled),
+.sub-btn:hover:not(:disabled),
+.shop-btn:hover:not(:disabled),
+.modal-btn:hover:not(:disabled) {
+filter: brightness(1.25);
+transform: translate(-1px, -1px);
+}
+
+.command-btn:active:not(:disabled),
+.sub-btn:active:not(:disabled),
+.shop-btn:active:not(:disabled),
+.modal-btn:active:not(:disabled) {
+transform: translate(2px, 2px);
+box-shadow: inset 0 0 0 1px #100b15;
+}
+
+.command-btn:disabled,
+.sub-btn:disabled,
+.shop-btn:disabled,
+.modal-btn:disabled {
+cursor: not-allowed;
+opacity: 0.42;
+filter: grayscale(0.6);
+}
+
+.command-btn strong,
+.sub-btn strong,
+.shop-btn strong {
+display: block;
+color: #fff7e8;
+font-size: 13px;
+}
+
+.command-btn span,
+.sub-btn span,
+.shop-btn span {
+display: block;
+color: #b9aaba;
+font-size: 10px;
+margin-top: 3px;
+}
+
+#subMenu {
+display: none;
+grid-template-columns: 1fr;
+overflow-y: auto;
+max-height: 145px;
+}
+
+.back-btn {
+border-color: #5f5967;
+}
+
+.attack-btn { border-color: #9c5057; }
+.magic-btn { border-color: #6157a3; }
+.defend-btn { border-color: #59718f; }
+.item-btn { border-color: #80714e; }
+.run-btn { border-color: #65735d; }
+
+.hotkey {
+position: absolute;
+right: 6px;
+top: 5px;
+color: #776879;
+font-size: 9px;
+}
+
+.resource-strip {
+display: flex;
+gap: 14px;
+flex-wrap: wrap;
+padding: 8px 12px;
+border-top: 2px solid #302336;
+background: #0a070d;
+color: #bbaabd;
+font-size: 12px;
+}
+
+.resource-strip b {
+color: var(--gold);
+}
+
+.modal {
+position: absolute;
+inset: 0;
+display: none;
+align-items: center;
+justify-content: center;
+padding: 18px;
+background: rgba(3, 2, 5, 0.84);
+z-index: 20;
+}
+
+.modal.visible {
+display: flex;
+}
+
+.modal-card {
+width: min(760px, 100%);
+max-height: 92%;
+overflow-y: auto;
+padding: 18px;
+border: 4px solid #785f7d;
+background:
+linear-gradient(rgba(29, 20, 36, 0.98), rgba(12, 8, 16, 0.98));
+box-shadow:
+inset 0 0 0 3px #1a1120,
+0 0 0 4px #08050b,
+0 18px 70px #000;
+}
+
+.modal-title {
+margin: 0 0 8px;
+color: #f2d58b;
+text-align: center;
+font-size: clamp(22px, 4vw, 37px);
+text-shadow: 3px 3px #000;
+}
+
+.modal-subtitle {
+text-align: center;
+color: #c4b4c6;
+line-height: 1.5;
+margin-bottom: 15px;
+}
+
+.reward-box {
+display: flex;
+justify-content: center;
+gap: 22px;
+flex-wrap: wrap;
+margin: 11px 0 18px;
+padding: 10px;
+border: 2px solid #48354f;
+background: #0c0910;
+}
+
+.reward-box b {
+color: var(--gold);
+}
+
+.shop-title {
+color: #dbc6e6;
+margin: 8px 0;
+font-size: 15px;
+text-align: center;
+}
+
+.shop-grid {
+display: grid;
+grid-template-columns: repeat(2, 1fr);
+gap: 9px;
+}
+
+.shop-btn {
+min-height: 59px;
+}
+
+.modal-actions {
+display: flex;
+justify-content: center;
+gap: 10px;
+margin-top: 17px;
+flex-wrap: wrap;
+}
+
+.modal-btn {
+min-width: 180px;
+text-align: center;
+color: #fff4dc;
+}
+
+.next-btn {
+border-color: #a0784c;
+background: linear-gradient(#5d4426, #2e2116);
+}
+
+.danger-btn {
+border-color: #9a4452;
+background: linear-gradient(#56242e, #281118);
+}
+
+#levelBanner {
+position: absolute;
+left: 50%;
+top: 48%;
+z-index: 15;
+transform: translate(-50%, -50%) scale(0.5);
+opacity: 0;
+pointer-events: none;
+color: #ffe79a;
+font-size: clamp(26px, 6vw, 57px);
+font-weight: 900;
+letter-spacing: 3px;
+text-shadow:
+4px 4px 0 #4c2136,
+-2px -2px 0 #fff5bd,
+0 0 20px #f0b44d;
+}
+
+#levelBanner.show {
+animation: levelPop 1.45s steps(8, end);
+}
+
+@keyframes levelPop {
+0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+20% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+70% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+100% { opacity: 0; transform: translate(-50%, -60%) scale(1.1); }
+}
+
+#toast {
+position: fixed;
+left: 50%;
+bottom: 24px;
+z-index: 100;
+max-width: calc(100vw - 30px);
+transform: translate(-50%, 20px);
+opacity: 0;
+pointer-events: none;
+padding: 10px 15px;
+border: 2px solid #735d77;
+background: #160f1c;
+color: #f1e3cf;
+box-shadow: 4px 4px 0 #000;
+transition: opacity 0.18s, transform 0.18s;
+text-align: center;
+}
+
+#toast.show {
+opacity: 1;
+transform: translate(-50%, 0);
+}
+
+@media (max-width: 780px) {
+body {
+padding: 5px;
+}
+
+#game {
+border-width: 2px;
+}
+
+.hud {
+inset: 6px 6px auto 6px;
+grid-template-columns: 1fr 1fr;
+gap: 6px;
+}
+
+.status-card {
+padding: 5px;
+border-width: 2px;
+}
+
+.bar {
+height: 12px;
+}
+
+.bottom-ui {
+grid-template-columns: 1fr;
+}
+
+.log-panel {
+border-right: 0;
+border-bottom: 3px solid #49364f;
+}
+
+#battleLog {
+height: 100px;
+}
+
+.command-panel {
+min-height: 190px;
+}
+
+.shop-grid {
+grid-template-columns: 1fr;
+}
+
+.title-sub {
+display: none;
+}
+}
+</style>
+
+</head> <body> <div id="game"> <div class="title-bar"> <div class="game-title">SHADOWBOUND</div> <div class="title-sub">A RETRO DARK FANTASY BATTLE RPG</div> </div> <div id="canvasWrap" class="canvas-wrap"> <canvas id="battleCanvas" width="960" height="540"></canvas>
+<div class="hud">
+  <div class="status-card">
+    <div class="name-row">
+      <span id="heroName" class="name">Aldric</span>
+      <span id="heroLevel" class="level">LV 1</span>
+    </div>
+    <div class="bar"><div id="heroHpFill" class="bar-fill hp-fill"></div></div>
+    <div class="value-row">
+      <span>HP</span>
+      <span id="heroHpText">100 / 100</span>
+    </div>
+    <div class="bar"><div id="heroMpFill" class="bar-fill mp-fill"></div></div>
+    <div class="value-row">
+      <span>MP</span>
+      <span id="heroMpText">35 / 35</span>
+    </div>
+    <div class="bar"><div id="heroExpFill" class="bar-fill exp-fill"></div></div>
+    <div class="value-row">
+      <span>EXP</span>
+      <span id="heroExpText">0 / 40</span>
+    </div>
+  </div>
+
+  <div class="status-card enemy">
+    <div class="name-row">
+      <span id="monsterName" class="name">Grave Slime</span>
+      <span id="monsterLevel" class="level">LV 1</span>
+    </div>
+    <div class="bar"><div id="monsterHpFill" class="bar-fill hp-fill"></div></div>
+    <div class="value-row">
+      <span>HP</span>
+      <span id="monsterHpText">45 / 45</span>
+    </div>
+    <div id="enemyStatus" class="enemy-status"></div>
+  </div>
+</div>
+
+<div id="levelBanner">LEVEL UP!</div>
+
+<div id="campModal" class="modal">
+  <div class="modal-card">
+    <h2 id="campTitle" class="modal-title">VICTORY</h2>
+    <div id="campSubtitle" class="modal-subtitle">
+      The darkness retreats, but only for a moment.
+    </div>
+
+    <div class="reward-box">
+      <span>Gold: <b id="campGold">0</b></span>
+      <span>Potions: <b id="campPotionCount">0</b></span>
+      <span>Mana Potions: <b id="campManaPotionCount">0</b></span>
+    </div>
+
+    <div class="shop-title">WANDERING MERCHANT</div>
+    <div class="shop-grid">
+      <button class="shop-btn" data-shop="hpPotion">
+        <strong>Crimson Potion</strong>
+        <span>Restore 45 HP · Cost: <b class="price">25</b> gold</span>
+      </button>
+      <button class="shop-btn" data-shop="mpPotion">
+        <strong>Azure Potion</strong>
+        <span>Restore 28 MP · Cost: <b class="price">30</b> gold</span>
+      </button>
+      <button class="shop-btn" data-shop="attack">
+        <strong>Sharpen Blade</strong>
+        <span>Permanent ATK +2 · Cost: <b class="price">70</b> gold</span>
+      </button>
+      <button class="shop-btn" data-shop="defense">
+        <strong>Reinforce Armor</strong>
+        <span>Permanent DEF +2 · Cost: <b class="price">70</b> gold</span>
+      </button>
+      <button class="shop-btn" data-shop="magic">
+        <strong>Forbidden Tome</strong>
+        <span>Permanent MAG +2 · Cost: <b class="price">85</b> gold</span>
+      </button>
+      <button class="shop-btn" data-shop="vitality">
+        <strong>Bloodstone Charm</strong>
+        <span>Max HP +12 · Cost: <b class="price">90</b> gold</span>
+      </button>
+      <button class="shop-btn" data-shop="mana">
+        <strong>Moon Sigil</strong>
+        <span>Max MP +8 · Cost: <b class="price">80</b> gold</span>
+      </button>
+      <button class="shop-btn" data-shop="rest">
+        <strong>Rest by the Flame</strong>
+        <span>Fully restore HP and MP · Cost: <b class="price">20</b> gold</span>
+      </button>
+    </div>
+
+    <div class="modal-actions">
+      <button id="nextBattleBtn" class="modal-btn next-btn">ENTER NEXT BATTLE</button>
+    </div>
+  </div>
+</div>
+
+<div id="gameOverModal" class="modal">
+  <div class="modal-card">
+    <h2 class="modal-title">YOU HAVE FALLEN</h2>
+    <div id="gameOverText" class="modal-subtitle">
+      Your soul joins the restless dead.
+    </div>
+    <div class="modal-actions">
+      <button id="restartBtn" class="modal-btn danger-btn">BEGIN A NEW JOURNEY</button>
+    </div>
+  </div>
+</div>
+</div> <div class="bottom-ui"> <div class="log-panel"> <div class="log-title">BATTLE CHRONICLE</div> <div id="battleLog"></div> </div>
+<div class="command-panel">
+  <div class="command-header">
+    <span>COMMAND</span>
+    <span id="turnIndicator" class="turn-indicator">YOUR TURN</span>
+  </div>
+
+  <div id="commandGrid">
+    <button id="attackBtn" class="command-btn attack-btn">
+      <span class="hotkey">1</span>
+      <strong>Attack</strong>
+      <span>Strike with your weapon</span>
+    </button>
+    <button id="magicBtn" class="command-btn magic-btn">
+      <span class="hotkey">2</span>
+      <strong>Magic</strong>
+      <span>Cast fire, ice, or healing</span>
+    </button>
+    <button id="defendBtn" class="command-btn defend-btn">
+      <span class="hotkey">3</span>
+      <strong>Defend</strong>
+      <span>Reduce the next attack</span>
+    </button>
+    <button id="itemBtn" class="command-btn item-btn">
+      <span class="hotkey">4</span>
+      <strong>Item</strong>
+      <span>Use a potion</span>
+    </button>
+    <button id="runBtn" class="command-btn run-btn">
+      <span class="hotkey">5</span>
+      <strong>Run</strong>
+      <span>Attempt to escape</span>
+    </button>
+  </div>
+
+  <div id="subMenu"></div>
+</div>
+</div> <div class="resource-strip"> <span>Gold: <b id="goldText">60</b></span> <span>ATK: <b id="attackStat">15</b></span> <span>DEF: <b id="defenseStat">8</b></span> <span>MAG: <b id="magicStat">13</b></span> <span>Wins: <b id="winText">0</b></span> <span>Enemy: <b id="enemyNumberText">1</b></span> </div> </div> <div id="toast"></div> <script> "use strict"; const canvas = document.getElementById("battleCanvas"); const ctx = canvas.getContext("2d"); ctx.imageSmoothingEnabled = false; const canvasWrap = document.getElementById("canvasWrap"); const battleLog = document.getElementById("battleLog"); const commandGrid = document.getElementById("commandGrid"); const subMenu = document.getElementById("subMenu"); const turnIndicator = document.getElementById("turnIndicator"); const campModal = document.getElementById("campModal"); const gameOverModal = document.getElementById("gameOverModal"); const levelBanner = document.getElementById("levelBanner"); const toastElement = document.getElementById("toast"); const ui = { heroLevel: document.getElementById("heroLevel"), heroHpFill: document.getElementById("heroHpFill"), heroMpFill: document.getElementById("heroMpFill"), heroExpFill: document.getElementById("heroExpFill"), heroHpText: document.getElementById("heroHpText"), heroMpText: document.getElementById("heroMpText"), heroExpText: document.getElementById("heroExpText"), monsterName: document.getElementById("monsterName"), monsterLevel: document.getElementById("monsterLevel"), monsterHpFill: document.getElementById("monsterHpFill"), monsterHpText: document.getElementById("monsterHpText"), enemyStatus: document.getElementById("enemyStatus"), goldText: document.getElementById("goldText"), attackStat: document.getElementById("attackStat"), defenseStat: document.getElementById("defenseStat"), magicStat: document.getElementById("magicStat"), winText: document.getElementById("winText"), enemyNumberText: document.getElementById("enemyNumberText"), campGold: document.getElementById("campGold"), campPotionCount: document.getElementById("campPotionCount"), campManaPotionCount: document.getElementById("campManaPotionCount"), campTitle: document.getElementById("campTitle"), campSubtitle: document.getElementById("campSubtitle") }; const buttons = { attack: document.getElementById("attackBtn"), magic: document.getElementById("magicBtn"), defend: document.getElementById("defendBtn"), item: document.getElementById("itemBtn"), run: document.getElementById("runBtn"), next: document.getElementById("nextBattleBtn"), restart: document.getElementById("restartBtn") }; const HERO_SPRITE = [ "......KK........", ".....KWWK.......", "....KWWWWK......", "....KSTSWK......", ".....KTTK.......", "....KKBBKK......", "...KBBBBBBK.....", "..KBBRBBRBK.....", "..KBBBBBBBBK....", "...KBBBBBBK.....", "...KKBBBBKK.....", "....KBBBBK......", "....K....K......", "...KK....KK.....", "..KK......KK....", "................" ]; const MONSTER_SPRITES = { slime: [ "................", "................", "......GG........", "....GGGGGG......", "...GGGGGGGG.....", "..GGGGGGGGGG....", "..GGKGGGGKGG....", ".GGGGGGGGGGGG...", ".GGGGGKKGGGGG...", "GGGGGGGGGGGGGG..", "GGGGGGGGGGGGGG..", ".GGGGGGGGGGGG...", "..GGGGGGGGGG....", "...GGG..GGG.....", "................", "................" ], skeleton: [ "......WW........", ".....WWWW.......", "....WKWWKW......", "....WWKKWW......", ".....WWWW.......", "......WW........", "...WWWWWWWW.....", "..WW..WW..WW....", "......WW........", "....WWWWWW......", "...WW.WW.WW.....", "..WW..WW..WW....", ".....W..W.......", "....WW..WW......", "...WW....WW.....", "................" ], wraith: [ ".....PPPP.......", "...PPPPPPPP.....", "..PPKKPPKKPP....", "..PPPPPPPPPP....", "...PPPPPPPP.....", "....PPPPPP......", "...PPPPPPPP.....", "..PPPPPPPPPP....", ".PPPPPPPPPPPP...", ".PPPPPPPPPPPP...", "..PPPPPPPPPP....", "...PPP..PPP.....", "..PPP....PPP....", ".PPP......PPP...", "................", "................" ], hound: [ "................", "..........RR....", "..RR.....RRRR...", ".RRRRRRRRRRR....", "RRKRRRRRKRRRR...", "RRRRRRRRRRRRR...", ".RRRRKKRRRRRR...", "..RRRRRRRRRR....", "...RRRRRRRR.....", "..RRRRRRRRRR....", ".RRR.RRRR.RRR...", ".RR..RRRR..RR...", ".....RR.RR......", "....RR...RR.....", "................", "................" ], witch: [ ".......P........", "......PPP.......", ".....PPPPP......", "....PPPPPPP.....", "...PPPPPPPPP....", ".....KWWK.......", "....WKWWKW......", ".....WWWW.......", "....PPPPPP......", "...PPPPPPPP.....", "..PPPPPPPPPP....", "...PPPPPPPP.....", "....PPPPPP......", "....PP..PP......", "...PP....PP.....", "................" ], golem: [ "....SSSSSS......", "...SSSSSSSS.....", "...SSKSSKSS.....", "...SSSSSSSS.....", "....SSSSSS......", "..SSSSSSSSSS....", ".SSSSSSSSSSSS...", "SSSSSSSSSSSSSS..", "SSSSSSSSSSSSSS..", ".SSSSSSSSSSSS...", "..SSSSSSSSSS....", "..SSS....SSS....", ".SSSS....SSSS...", ".SSS......SSS...", "................", "................" ], knight: [ ".....DDDD.......", "....DDDDDD......", "...DDKDDKDD.....", "...DDDDDDDD.....", "....DDDDDD......", "...DDRRRRDD.....", "..DDRRRRRRDD....", ".DDRRDDDDRRDD...", "DDRRRDDDDRRRDD..", "DDRRRRRRRRRRDD..", ".DDRRRRRRRRDD...", "..DDRRRRRRDD....", "...DD....DD.....", "..DDD....DDD....", ".DDD......DDD...", "................" ] }; const HERO_PALETTE = { K: "#17131b", W: "#c8c0b8", S: "#d9a176", T: "#643f32", B: "#334d73", R: "#8c3043" }; const MONSTER_TEMPLATES = [ { name: "Grave Slime", sprite: "slime", palette: { G: "#587d45", K: "#17151b" }, hp: 48, atk: 10, def: 3, mag: 4, res: 3, exp: 25, gold: 18, special: "Toxic Splash", specialMultiplier: 1.25, description: "A mass of grave-soil and hungry spirits." }, { name: "Bone Raider", sprite: "skeleton", palette: { W: "#d5ccb2", K: "#2a2026" }, hp: 70, atk: 14, def: 6, mag: 3, res: 5, exp: 36, gold: 26, special: "Splintering Cleave", specialMultiplier: 1.4, description: "A dead warrior still searching for battle." }, { name: "Hollow Wraith", sprite: "wraith", palette: { P: "#7660a6", K: "#10121c" }, hp: 82, atk: 12, def: 5, mag: 16, res: 9, exp: 48, gold: 36, special: "Soul Drain", specialMultiplier: 1.45, caster: true, drain: true, description: "A remnant that feeds upon living warmth." }, { name: "Plague Hound", sprite: "hound", palette: { R: "#75434a", K: "#161218" }, hp: 105, atk: 20, def: 8, mag: 7, res: 7, exp: 62, gold: 48, special: "Rending Pounce", specialMultiplier: 1.55, description: "A diseased beast bred beneath a black moon." }, { name: "Hexwood Witch", sprite: "witch", palette: { P: "#604075", K: "#1a131e", W: "#c7b4a9" }, hp: 118, atk: 15, def: 9, mag: 24, res: 13, exp: 78, gold: 62, special: "Umbral Curse", specialMultiplier: 1.65, caster: true, healer: true, description: "She speaks in forgotten names and dying stars." }, { name: "Iron Crypt Golem", sprite: "golem", palette: { S: "#626a70", K: "#1a1b20" }, hp: 175, atk: 25, def: 17, mag: 8, res: 10, exp: 105, gold: 85, special: "Gravestone Crush", specialMultiplier: 1.7, description: "A burial guardian forged from cursed iron." }, { name: "Abyss Knight", sprite: "knight", palette: { D: "#292536", K: "#e2505d", R: "#6c2638" }, hp: 240, atk: 31, def: 19, mag: 25, res: 17, exp: 155, gold: 130, special: "Abyssal Judgment", specialMultiplier: 1.9, caster: true, boss: true, description: "The armored hand of the endless dark." } ]; const heroDefaults = () => ({ name: "Aldric", level: 1, exp: 0, expNext: 40, maxHp: 110, hp: 110, maxMp: 38, mp: 38, atk: 15, def: 8, mag: 13, gold: 60, hpPotions: 2, mpPotions: 1, defending: false }); let hero = heroDefaults(); let monster = null; let enemyIndex = 0; let victories = 0; let phase = "battle"; let inputLocked = false; let openMenu = null; let lastRewards = { exp: 0, gold: 0 }; let shopLevel = { attack: 0, defense: 0, magic: 0, vitality: 0, mana: 0 }; const animation = { heroOffset: 0, monsterOffset: 0, heroBob: 0, monsterBob: 0, flashUntil: 0, flashColor: "255,255,255", slashUntil: 0, slashSide: "right", spellUntil: 0, spellType: "", spellX: 0, spellY: 0 }; const floatingTexts = []; const embers = Array.from({ length: 45 }, () => ({ x: Math.random() * canvas.width, y: 300 + Math.random() * 230, size: 1 + Math.floor(Math.random() * 3), speed: 0.15 + Math.random() * 0.55, drift: -0.25 + Math.random() * 0.5, phase: Math.random() * Math.PI * 2 })); const sleep = ms => new Promise(resolve => setTimeout(resolve, ms)); const clamp = (value, min, max) => Math.max(min, Math.min(max, value)); const randomRange = (min, max) => min + Math.random() * (max - min); function log(message, type = "system") { const line = document.createElement("div"); line.className = `log-entry ${type}`; line.textContent = `› ${message}`; battleLog.appendChild(line); while (battleLog.children.length > 40) { battleLog.removeChild(battleLog.firstChild); } battleLog.scrollTop = battleLog.scrollHeight; } let toastTimeout = null; function showToast(message) { toastElement.textContent = message; toastElement.classList.add("show"); clearTimeout(toastTimeout); toastTimeout = setTimeout(() => { toastElement.classList.remove("show"); }, 1700); } function percentage(current, maximum) { return maximum <= 0 ? 0 : clamp((current / maximum) * 100, 0, 100); } function updateUI() { ui.heroLevel.textContent = `LV ${hero.level}`; ui.heroHpFill.style.width = `${percentage(hero.hp, hero.maxHp)}%`; ui.heroMpFill.style.width = `${percentage(hero.mp, hero.maxMp)}%`; ui.heroExpFill.style.width = `${percentage(hero.exp, hero.expNext)}%`; ui.heroHpText.textContent = `${Math.max(0, hero.hp)} / ${hero.maxHp}`; ui.heroMpText.textContent = `${Math.max(0, hero.mp)} / ${hero.maxMp}`; ui.heroExpText.textContent = `${hero.exp} / ${hero.expNext}`; if (monster) { ui.monsterName.textContent = monster.name; ui.monsterLevel.textContent = `LV ${monster.level}`; ui.monsterHpFill.style.width = `${percentage(monster.hp, monster.maxHp)}%`; ui.monsterHpText.textContent = `${Math.max(0, monster.hp)} / ${monster.maxHp}`; const statuses = []; if (monster.burnTurns > 0) statuses.push(`BURN ${monster.burnTurns}`); if (monster.frozen) statuses.push("FROZEN"); ui.enemyStatus.textContent = statuses.join(" · "); } ui.goldText.textContent = hero.gold; ui.attackStat.textContent = hero.atk; ui.defenseStat.textContent = hero.def; ui.magicStat.textContent = hero.mag; ui.winText.textContent = victories; ui.enemyNumberText.textContent = enemyIndex + 1; ui.campGold.textContent = hero.gold; ui.campPotionCount.textContent = hero.hpPotions; ui.campManaPotionCount.textContent = hero.mpPotions; updateShopButtons(); updateCommandState(); } function updateCommandState() { const disabled = inputLocked || phase !== "battle"; Object.values({ attack: buttons.attack, magic: buttons.magic, defend: buttons.defend, item: buttons.item, run: buttons.run }).forEach(button => { button.disabled = disabled; }); turnIndicator.textContent = phase !== "battle" ? "BATTLE ENDED" : inputLocked ? "ENEMY TURN" : "YOUR TURN"; } function createMonster(index) { const template = MONSTER_TEMPLATES[index % MONSTER_TEMPLATES.length]; const cycle = Math.floor(index / MONSTER_TEMPLATES.length); const level = Math.max(1, index + 1); const scale = 1 + cycle * 0.55 + index * 0.025; const bossScale = template.boss ? 1.12 : 1; const maxHp = Math.floor(template.hp * scale * bossScale); return { ...template, level, maxHp, hp: maxHp, atk: Math.floor(template.atk * scale), def: Math.floor(template.def * (1 + cycle * 0.4 + index * 0.018)), mag: Math.floor(template.mag * scale), res: Math.floor(template.res * (1 + cycle * 0.4 + index * 0.018)), expReward: Math.floor(template.exp * (1 + cycle * 0.7 + index * 0.03)), goldReward: Math.floor(template.gold * (1 + cycle * 0.62 + index * 0.025)), burnTurns: 0, frozen: false, enraged: false }; } function startBattle(index) { monster = createMonster(index); phase = "battle"; inputLocked = false; hero.defending = false; openMenu = null; campModal.classList.remove("visible"); gameOverModal.classList.remove("visible"); showCommandGrid(); battleLog.textContent = ""; log(`A ${monster.name} emerges from the darkness.`, "enemy"); log(monster.description, "system"); if (monster.boss) { log("A boss aura prevents escape.", "enemy"); } updateUI(); } function calculatePhysicalDamage(attackerAtk, defenderDef, multiplier = 1) { const raw = attackerAtk * multiplier - defenderDef * 0.52; const variance = randomRange(0.88, 1.13); return Math.max(1, Math.floor(raw * variance)); } function calculateMagicDamage(casterMag, targetRes, multiplier = 1) { const raw = casterMag * multiplier - targetRes * 0.38; const variance = randomRange(0.91, 1.12); return Math.max(2, Math.floor(raw * variance)); } function addFloatingText(text, x, y, color = "#ffffff", size = 24) { floatingTexts.push({ text, x, y, color, size, created: performance.now(), duration: 1000 }); } function triggerHit(target, color = "255,255,255") { animation.flashUntil = performance.now() + 115; animation.flashColor = color; canvasWrap.classList.remove("screen-shake"); void canvasWrap.offsetWidth; canvasWrap.classList.add("screen-shake"); setTimeout(() => { canvasWrap.classList.remove("screen-shake"); }, 290); if (target === "monster") { animation.slashUntil = performance.now() + 210; animation.slashSide = "right"; } else { animation.slashUntil = performance.now() + 210; animation.slashSide = "left"; } } function tweenOffset(property, from, to, duration) { return new Promise(resolve => { const start = performance.now(); function frame(now) { const progress = clamp((now - start) / duration, 0, 1); const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2; animation[property] = from + (to - from) * eased; if (progress < 1) { requestAnimationFrame(frame); } else { animation[property] = to; resolve(); } } requestAnimationFrame(frame); }); } async function animateHeroStrike() { await tweenOffset("heroOffset", 0, 88, 150); triggerHit("monster", "255,226,195"); await sleep(90); await tweenOffset("heroOffset", 88, 0, 180); } async function animateMonsterStrike() { await tweenOffset("monsterOffset", 0, -82, 160); triggerHit("hero", "255,105,120"); await sleep(90); await tweenOffset("monsterOffset", -82, 0, 190); } async function animateSpell(type, target = "monster") { animation.spellType = type; animation.spellX = target === "monster" ? 735 : 225; animation.spellY = target === "monster" ? 300 : 310; animation.spellUntil = performance.now() + 600; if (type === "fire") { animation.flashColor = "255,100,35"; } else if (type === "ice") { animation.flashColor = "90,190,255"; } else if (type === "heal") { animation.flashColor = "90,255,150"; } else { animation.flashColor = "155,75,210"; } animation.flashUntil = performance.now() + 150; await sleep(420); if (target === "monster") { triggerHit("monster", animation.flashColor); } await sleep(180); } async function playerAttack() { if (!canAct()) return; lockInput(); const critical = Math.random() < 0.12; const multiplier = critical ? 1.7 : 1; const damage = calculatePhysicalDamage(hero.atk, monster.def, multiplier); log(`${hero.name} attacks with the Graveblade.`, "player"); await animateHeroStrike(); monster.hp = Math.max(0, monster.hp - damage); addFloatingText( critical ? `CRIT ${damage}` : `-${damage}`, 735, 245, critical ? "#ffe16d" : "#ff8a8a", critical ? 29 : 25 ); log( critical ? `Critical hit! ${monster.name} takes ${damage} damage.` : `${monster.name} takes ${damage} damage.`, critical ? "gold" : "player" ); updateUI(); if (await checkMonsterDefeated()) return; await monsterTurn(); } async function castSpell(spell) { if (!canAct()) return; const spellData = { fire: { name: "Ember Lance", cost: 8 }, ice: { name: "Frost Shard", cost: 10 }, heal: { name: "Mending Light", cost: 12 } }[spell]; if (!spellData) return; if (hero.mp < spellData.cost) { showToast("Not enough MP."); log("The spell fails. You do not have enough MP.", "system"); return; } if (spell === "heal" && hero.hp >= hero.maxHp) { showToast("HP is already full."); return; } lockInput(); hero.mp -= spellData.cost; showCommandGrid(); if (spell === "fire") { log(`${hero.name} casts Ember Lance.`, "player"); await animateSpell("fire", "monster"); const damage = calculateMagicDamage(hero.mag, monster.res, 1.42); monster.hp = Math.max(0, monster.hp - damage); monster.burnTurns = Math.max(monster.burnTurns, 3); addFloatingText(`-${damage}`, 735, 240, "#ff9b45", 27); log(`${monster.name} takes ${damage} fire damage and begins burning.`, "player"); } if (spell === "ice") { log(`${hero.name} casts Frost Shard.`, "player"); await animateSpell("ice", "monster"); const damage = calculateMagicDamage(hero.mag, monster.res, 1.12); monster.hp = Math.max(0, monster.hp - damage); const freezeChance = monster.boss ? 0.16 : 0.36; const frozen = Math.random() < freezeChance; monster.frozen = monster.frozen || frozen; addFloatingText(`-${damage}`, 735, 240, "#8bdcff", 27); log( frozen ? `${monster.name} takes ${damage} damage and is frozen.` : `${monster.name} takes ${damage} ice damage.`, "player" ); } if (spell === "heal") { log(`${hero.name} invokes Mending Light.`, "player"); await animateSpell("heal", "hero"); const healing = Math.floor(hero.mag * 1.75 + hero.level * 3); const actualHealing = Math.min(healing, hero.maxHp - hero.hp); hero.hp += actualHealing; addFloatingText(`+${actualHealing}`, 225, 245, "#85ef9a", 27); log(`${hero.name} restores ${actualHealing} HP.`, "good"); } updateUI(); if (await checkMonsterDefeated()) return; await monsterTurn(); } async function playerDefend() { if (!canAct()) return; lockInput(); hero.defending = true; const recoveredMp = Math.min(4, hero.maxMp - hero.mp); hero.mp += recoveredMp; log( recoveredMp > 0 ? `${hero.name} braces for impact and recovers ${recoveredMp} MP.` : `${hero.name} braces for the next attack.`, "player" ); addFloatingText("GUARD", 225, 250, "#8fcaff", 22); updateUI(); await sleep(450); await monsterTurn(); } async function useItem(type) { if (!canAct()) return; if (type === "hpPotion") { if (hero.hpPotions <= 0) { showToast("No Crimson Potions remain."); return; } if (hero.hp >= hero.maxHp) { showToast("HP is already full."); return; } lockInput(); showCommandGrid(); hero.hpPotions--; const amount = Math.min(45, hero.maxHp - hero.hp); hero.hp += amount; animation.spellType = "heal"; animation.spellX = 225; animation.spellY = 300; animation.spellUntil = performance.now() + 450; addFloatingText(`+${amount}`, 225, 245, "#8ff2a0", 26); log(`${hero.name} drinks a Crimson Potion and restores ${amount} HP.`, "good"); } if (type === "mpPotion") { if (hero.mpPotions <= 0) { showToast("No Azure Potions remain."); return; } if (hero.mp >= hero.maxMp) { showToast("MP is already full."); return; } lockInput(); showCommandGrid(); hero.mpPotions--; const amount = Math.min(28, hero.maxMp - hero.mp); hero.mp += amount; animation.spellType = "ice"; animation.spellX = 225; animation.spellY = 300; animation.spellUntil = performance.now() + 450; addFloatingText(`+${amount} MP`, 225, 245, "#82caff", 23); log(`${hero.name} drinks an Azure Potion and restores ${amount} MP.`, "good"); } updateUI(); await sleep(600); await monsterTurn(); } async function attemptRun() { if (!canAct()) return; lockInput(); if (monster.boss) { log("The Abyss Knight seals every path of escape.", "enemy"); addFloatingText("NO ESCAPE", 480, 220, "#ff777f", 25); await sleep(700); await monsterTurn(); return; } log(`${hero.name} searches for an escape route.`, "player"); await sleep(550); const chance = clamp(0.52 + (hero.level - monster.level) * 0.025, 0.25, 0.8); if (Math.random() < chance) { log("Escape successful. You return to the wandering merchant.", "good"); addFloatingText("ESCAPED", 480, 220, "#a7f0a7", 29); await sleep(650); openCamp(false); } else { log("The escape attempt fails.", "enemy"); addFloatingText("FAILED", 480, 220, "#ff8b91", 28); await sleep(500); await monsterTurn(); } } async function monsterTurn() { if (phase !== "battle" || monster.hp <= 0) return; turnIndicator.textContent = "ENEMY TURN"; await sleep(400); if (monster.burnTurns > 0) { const burnDamage = Math.max(3, Math.floor(hero.mag * 0.27 + monster.maxHp * 0.018)); monster.burnTurns--; monster.hp = Math.max(0, monster.hp - burnDamage); addFloatingText(`BURN -${burnDamage}`, 735, 230, "#ff9d47", 21); log(`${monster.name} suffers ${burnDamage} burning damage.`, "good"); updateUI(); await sleep(500); if (await checkMonsterDefeated()) return; } if (monster.frozen) { monster.frozen = false; log(`${monster.name} is frozen and loses its turn.`, "good"); addFloatingText("FROZEN", 735, 230, "#8edcff", 25); updateUI(); await sleep(650); unlockInput(); return; } if ( monster.healer && !monster.enraged && monster.hp < monster.maxHp * 0.32 && Math.random() < 0.55 ) { monster.enraged = true; const healAmount = Math.floor(monster.maxHp * 0.2); monster.hp = Math.min(monster.maxHp, monster.hp + healAmount); log(`${monster.name} chants a forbidden restoration hex.`, "enemy"); await animateSpell("heal", "monster"); addFloatingText(`+${healAmount}`, 735, 245, "#a2df91", 25); log(`${monster.name} restores ${healAmount} HP.`, "enemy"); updateUI(); await sleep(450); unlockInput(); return; } const useSpecial = Math.random() < (monster.boss ? 0.42 : 0.28); let damage; let actionName; if (useSpecial) { actionName = monster.special; if (monster.caster) { damage = calculateMagicDamage(monster.mag, Math.floor(hero.def * 0.7), monster.specialMultiplier); } else { damage = calculatePhysicalDamage(monster.atk, hero.def, monster.specialMultiplier); } } else { actionName = "Attack"; damage = calculatePhysicalDamage(monster.atk, hero.def, 1); } if (hero.defending) { damage = Math.max(1, Math.floor(damage * 0.43)); } log( useSpecial ? `${monster.name} uses ${actionName}.` : `${monster.name} attacks.`, "enemy" ); if (monster.caster && useSpecial) { await animateSpell("shadow", "hero"); } else { await animateMonsterStrike(); } hero.hp = Math.max(0, hero.hp - damage); addFloatingText( hero.defending ? `BLOCK -${damage}` : `-${damage}`, 225, 245, hero.defending ? "#89c8ff" : "#ff7f8a", hero.defending ? 23 : 27 ); log( hero.defending ? `${hero.name} blocks part of the blow and takes ${damage} damage.` : `${hero.name} takes ${damage} damage.`, "enemy" ); if (monster.drain && useSpecial) { const drained = Math.max(2, Math.floor(damage * 0.25)); monster.hp = Math.min(monster.maxHp, monster.hp + drained); log(`${monster.name} drains ${drained} HP from the wound.`, "enemy"); } hero.defending = false; updateUI(); if (hero.hp <= 0) { await handleGameOver(); return; } await sleep(450); unlockInput(); } async function checkMonsterDefeated() { if (monster.hp > 0) return false; inputLocked = true; updateUI(); log(`${monster.name} collapses into shadow.`, "good"); addFloatingText("VICTORY", 480, 205, "#ffe08b", 38); animation.flashColor = "255,220,120"; animation.flashUntil = performance.now() + 230; await sleep(850); await handleVictory(); return true; } async function handleVictory() { phase = "camp"; victories++; const gainedExp = monster.expReward; const gainedGold = monster.goldReward; lastRewards = { exp: gainedExp, gold: gainedGold }; hero.exp += gainedExp; hero.gold += gainedGold; log(`Victory rewards: ${gainedExp} EXP and ${gainedGold} gold.`, "gold"); let levelCount = 0; while (hero.exp >= hero.expNext) { hero.exp -= hero.expNext; hero.level++; hero.expNext = Math.floor(hero.expNext * 1.38 + 10); const hpGain = 13 + Math.floor(hero.level * 1.5); const mpGain = 6 + Math.floor(hero.level * 0.6); const attackGain = 3; const defenseGain = 2; const magicGain = 3; hero.maxHp += hpGain; hero.maxMp += mpGain; hero.atk += attackGain; hero.def += defenseGain; hero.mag += magicGain; hero.hp = hero.maxHp; hero.mp = hero.maxMp; levelCount++; log( `Level ${hero.level}! HP +${hpGain}, MP +${mpGain}, ATK +${attackGain}, DEF +${defenseGain}, MAG +${magicGain}.`, "gold" ); } enemyIndex++; if (levelCount > 0) { levelBanner.textContent = levelCount > 1 ? `${levelCount} LEVELS GAINED!` : "LEVEL UP!"; levelBanner.classList.remove("show"); void levelBanner.offsetWidth; levelBanner.classList.add("show"); await sleep(700); } else { hero.hp = Math.min(hero.maxHp, hero.hp + Math.floor(hero.maxHp * 0.18)); hero.mp = Math.min(hero.maxMp, hero.mp + Math.floor(hero.maxMp * 0.22)); } updateUI(); openCamp(true); } function openCamp(victory) { phase = "camp"; inputLocked = true; showCommandGrid(); if (victory) { ui.campTitle.textContent = monster.boss ? "BOSS DEFEATED" : "VICTORY"; ui.campSubtitle.textContent = `You earned ${lastRewards.exp} EXP and ${lastRewards.gold} gold. ` + "Prepare before entering the next darkness."; } else { ui.campTitle.textContent = "SAFE PASSAGE"; ui.campSubtitle.textContent = "You escaped without rewards. The same enemy still waits beyond the fire."; } campModal.classList.add("visible"); updateUI(); } async function handleGameOver() { phase = "gameover"; inputLocked = true; updateCommandState(); animation.flashColor = "170,20,45"; animation.flashUntil = performance.now() + 500; log(`${hero.name} has fallen.`, "enemy"); await sleep(900); document.getElementById("gameOverText").textContent = `Level ${hero.level} · ${victories} victories · ${hero.gold} gold collected.`; gameOverModal.classList.add("visible"); } function lockInput() { inputLocked = true; updateCommandState(); } function unlockInput() { if (phase !== "battle") return; inputLocked = false; turnIndicator.textContent = "YOUR TURN"; updateCommandState(); } function canAct() { return phase === "battle" && !inputLocked && monster && monster.hp > 0 && hero.hp > 0; } function showCommandGrid() { openMenu = null; commandGrid.style.display = "grid"; subMenu.style.display = "none"; subMenu.innerHTML = ""; } function showMagicMenu() { if (!canAct()) return; openMenu = "magic"; commandGrid.style.display = "none"; subMenu.style.display = "grid"; subMenu.innerHTML = ` <button class="sub-btn" data-spell="fire"> <strong>Ember Lance · 8 MP</strong> <span>Strong fire damage and burns for 3 turns</span> </button> <button class="sub-btn" data-spell="ice"> <strong>Frost Shard · 10 MP</strong> <span>Ice damage with a chance to freeze</span> </button> <button class="sub-btn" data-spell="heal"> <strong>Mending Light · 12 MP</strong> <span>Restore HP using your magic stat</span> </button> <button class="sub-btn back-btn" data-back="true"> <strong>Back</strong> <span>Return to the command menu</span> </button> `; subMenu.querySelectorAll("[data-spell]").forEach(button => { button.addEventListener("click", () => castSpell(button.dataset.spell)); }); subMenu.querySelector("[data-back]").addEventListener("click", showCommandGrid); } function showItemMenu() { if (!canAct()) return; openMenu = "item"; commandGrid.style.display = "none"; subMenu.style.display = "grid"; subMenu.innerHTML = ` <button class="sub-btn" data-item="hpPotion"> <strong>Crimson Potion ×${hero.hpPotions}</strong> <span>Restore 45 HP</span> </button> <button class="sub-btn" data-item="mpPotion"> <strong>Azure Potion ×${hero.mpPotions}</strong> <span>Restore 28 MP</span> </button> <button class="sub-btn back-btn" data-back="true"> <strong>Back</strong> <span>Return to the command menu</span> </button> `; subMenu.querySelectorAll("[data-item]").forEach(button => { button.addEventListener("click", () => useItem(button.dataset.item)); }); subMenu.querySelector("[data-back]").addEventListener("click", showCommandGrid); } const baseShopPrices = { hpPotion: 25, mpPotion: 30, attack: 70, defense: 70, magic: 85, vitality: 90, mana: 80, rest: 20 }; function getShopPrice(item) { if (item === "attack" || item === "defense" || item === "magic" || item === "vitality" || item === "mana") { return Math.floor(baseShopPrices[item] * (1 + shopLevel[item] * 0.38)); } return baseShopPrices[item]; } function updateShopButtons() { document.querySelectorAll("[data-shop]").forEach(button => { const item = button.dataset.shop; const price = getShopPrice(item); const priceElement = button.querySelector(".price"); if (priceElement) priceElement.textContent = price; const unavailableRest = item === "rest" && hero.hp >= hero.maxHp && hero.mp >= hero.maxMp; button.disabled = hero.gold < price || unavailableRest; }); } function buyShopItem(item) { if (phase !== "camp") return; const price = getShopPrice(item); if (hero.gold < price) { showToast("Not enough gold."); return; } if (item === "rest" && hero.hp >= hero.maxHp && hero.mp >= hero.maxMp) { showToast("You are already fully restored."); return; } hero.gold -= price; switch (item) { case "hpPotion": hero.hpPotions++; showToast("Crimson Potion purchased."); break; case "mpPotion": hero.mpPotions++; showToast("Azure Potion purchased."); break; case "attack": hero.atk += 2; shopLevel.attack++; showToast("Attack increased by 2."); break; case "defense": hero.def += 2; shopLevel.defense++; showToast("Defense increased by 2."); break; case "magic": hero.mag += 2; shopLevel.magic++; showToast("Magic increased by 2."); break; case "vitality": hero.maxHp += 12; hero.hp += 12; shopLevel.vitality++; showToast("Maximum HP increased by 12."); break; case "mana": hero.maxMp += 8; hero.mp += 8; shopLevel.mana++; showToast("Maximum MP increased by 8."); break; case "rest": hero.hp = hero.maxHp; hero.mp = hero.maxMp; showToast("Your strength has been restored."); break; } updateUI(); } function restartGame() { hero = heroDefaults(); enemyIndex = 0; victories = 0; phase = "battle"; inputLocked = false; shopLevel = { attack: 0, defense: 0, magic: 0, vitality: 0, mana: 0 }; animation.heroOffset = 0; animation.monsterOffset = 0; floatingTexts.length = 0; startBattle(0); } function drawSprite(sprite, x, y, scale, palette, flip = false) { const width = sprite[0].length; for (let row = 0; row < sprite.length; row++) { for (let col = 0; col < sprite[row].length; col++) { const character = sprite[row][col]; if (character === ".") continue; ctx.fillStyle = palette[character] || "#ff00ff"; const drawCol = flip ? width - col - 1 : col; ctx.fillRect( Math.round(x + drawCol * scale), Math.round(y + row * scale), scale, scale ); } } } function drawPixelText(text, x, y, size = 18, align = "center", color = "#ffffff") { ctx.save(); ctx.font = `bold ${size}px "Courier New", monospace`; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillStyle = "#09060b"; ctx.fillText(text, x + 3, y + 3); ctx.fillStyle = color; ctx.fillText(text, x, y); ctx.restore(); } function drawBackground(time) { const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height); gradient.addColorStop(0, "#160f21"); gradient.addColorStop(0.48, "#24132a"); gradient.addColorStop(1, "#09070b"); ctx.fillStyle = gradient; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = "#392244"; ctx.beginPath(); ctx.moveTo(0, 245); ctx.lineTo(90, 140); ctx.lineTo(150, 245); ctx.lineTo(260, 105); ctx.lineTo(360, 245); ctx.lineTo(475, 120); ctx.lineTo(580, 245); ctx.lineTo(720, 95); ctx.lineTo(840, 245); ctx.lineTo(930, 150); ctx.lineTo(960, 190); ctx.lineTo(960, 320); ctx.lineTo(0, 320); ctx.closePath(); ctx.fill(); ctx.fillStyle = "#1a121e"; ctx.beginPath(); ctx.moveTo(0, 285); ctx.lineTo(140, 205); ctx.lineTo(260, 290); ctx.lineTo(410, 190); ctx.lineTo(560, 290); ctx.lineTo(710, 205); ctx.lineTo(850, 285); ctx.lineTo(960, 230); ctx.lineTo(960, 350); ctx.lineTo(0, 350); ctx.closePath(); ctx.fill(); ctx.fillStyle = "#c5b3d6"; ctx.fillRect(776, 74, 5, 5); ctx.fillRect(824, 117, 3, 3); ctx.fillRect(655, 82, 4, 4); ctx.fillRect(108, 95, 3, 3); ctx.fillRect(183, 64, 4, 4); ctx.fillRect(517, 82, 3, 3); ctx.fillRect(398, 51, 4, 4); ctx.fillStyle = "#d5c3c2"; ctx.beginPath(); ctx.arc(825, 92, 38, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#6c536c"; ctx.beginPath(); ctx.arc(840, 80, 35, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#0d0a10"; ctx.fillRect(0, 348, 960, 192); ctx.fillStyle = "#211721"; ctx.beginPath(); ctx.moveTo(0, 400); ctx.lineTo(90, 372); ctx.lineTo(195, 397); ctx.lineTo(310, 369); ctx.lineTo(430, 398); ctx.lineTo(560, 366); ctx.lineTo(700, 397); ctx.lineTo(820, 370); ctx.lineTo(960, 397); ctx.lineTo(960, 540); ctx.lineTo(0, 540); ctx.closePath(); ctx.fill(); ctx.strokeStyle = "#352535"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 431); ctx.lineTo(960, 431); ctx.moveTo(0, 472); ctx.lineTo(960, 472); ctx.stroke(); ctx.strokeStyle = "#291c2b"; ctx.lineWidth = 2; for (let x = -40; x < 1000; x += 75) { ctx.beginPath(); ctx.moveTo(x, 400); ctx.lineTo(x + 45, 540); ctx.stroke(); } ctx.fillStyle = "#120c13"; ctx.fillRect(60, 290, 18, 110); ctx.fillRect(882, 275, 20, 125); ctx.fillStyle = "#2b1a2e"; ctx.fillRect(52, 290, 34, 11); ctx.fillRect(873, 275, 38, 12); ctx.fillStyle = "#50304e"; ctx.fillRect(56, 300, 4, 86); ctx.fillRect(879, 287, 4, 93); for (const ember of embers) { ember.y -= ember.speed; ember.x += Math.sin(time * 0.001 + ember.phase) * 0.12 + ember.drift * 0.06; if (ember.y < 280) { ember.y = 520; ember.x = Math.random() * canvas.width; } ctx.fillStyle = ember.size > 1 ? "#d26e43" : "#805043"; ctx.fillRect(Math.floor(ember.x), Math.floor(ember.y), ember.size, ember.size); } } function drawCharacters(time) { if (!monster) return; const heroX = 150 + animation.heroOffset; const heroY = 270 + Math.sin(time * 0.004) * 3; const monsterX = 650 + animation.monsterOffset; const monsterY = 265 + Math.sin(time * 0.0035 + 1.5) * 4; ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.beginPath(); ctx.ellipse(heroX + 80, 432, 83, 18, 0, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.ellipse(monsterX + 80, 432, 96, 20, 0, 0, Math.PI * 2); ctx.fill(); if (hero.hp > 0) { drawSprite(HERO_SPRITE, heroX, heroY, 10, HERO_PALETTE, false); ctx.fillStyle = "#9eacbd"; ctx.fillRect(heroX + 131, heroY + 61, 50, 7); ctx.fillStyle = "#e4d9c6"; ctx.fillRect(heroX + 172, heroY + 55, 19, 7); ctx.fillStyle = "#5b3340"; ctx.fillRect(heroX + 124, heroY + 56, 12, 18); } else { ctx.save(); ctx.globalAlpha = 0.45; drawSprite(HERO_SPRITE, heroX, heroY + 70, 10, HERO_PALETTE, false); ctx.restore(); } if (monster.hp > 0) { drawSprite( MONSTER_SPRITES[monster.sprite], monsterX, monsterY, 10, monster.palette, false ); } else { ctx.save(); ctx.globalAlpha = 0.23; drawSprite( MONSTER_SPRITES[monster.sprite], monsterX, monsterY + 65, 10, monster.palette, false ); ctx.restore(); } if (monster.boss && monster.hp > 0) { ctx.save(); ctx.globalAlpha = 0.45 + Math.sin(time * 0.007) * 0.15; ctx.strokeStyle = "#b7445d"; ctx.lineWidth = 5; ctx.beginPath(); ctx.ellipse(monsterX + 80, monsterY + 150, 98, 28, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); } } function drawSlashEffects(now) { if (now >= animation.slashUntil) return; const remaining = (animation.slashUntil - now) / 210; ctx.save(); ctx.globalAlpha = clamp(remaining, 0, 1); ctx.fillStyle = "#fff3d1"; if (animation.slashSide === "right") { for (let i = 0; i < 7; i++) { ctx.fillRect(700 + i * 10, 242 + i * 9, 23, 6); } } else { for (let i = 0; i < 7; i++) { ctx.fillRect(270 - i * 10, 242 + i * 9, 23, 6); } } ctx.restore(); } function drawSpellEffects(now) { if (now >= animation.spellUntil) return; const life = clamp((animation.spellUntil - now) / 600, 0, 1); const x = animation.spellX; const y = animation.spellY; const type = animation.spellType; ctx.save(); ctx.globalAlpha = Math.min(1, life * 1.8); if (type === "fire") { for (let i = 0; i < 18; i++) { const angle = i * 0.7 + now * 0.012; const radius = 18 + (i % 5) * 7; const px = x + Math.cos(angle) * radius; const py = y + Math.sin(angle) * radius - (1 - life) * 35; ctx.fillStyle = i % 3 === 0 ? "#ffe170" : i % 2 === 0 ? "#ff9b35" : "#d94b38"; ctx.fillRect(Math.floor(px), Math.floor(py), 8, 8); } } if (type === "ice") { ctx.fillStyle = "#9ce8ff"; for (let i = 0; i < 16; i++) { const angle = (Math.PI * 2 * i) / 16 + now * 0.003; const radius = 20 + (i % 4) * 10; const px = x + Math.cos(angle) * radius; const py = y + Math.sin(angle) * radius; ctx.fillRect(Math.floor(px), Math.floor(py), 6, 14); } } if (type === "heal") { ctx.strokeStyle = "#8ff0a2"; ctx.lineWidth = 7; ctx.beginPath(); ctx.arc(x, y, 40 + Math.sin(now * 0.02) * 8, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = "#d5ffd8"; ctx.fillRect(x - 8, y - 35, 16, 70); ctx.fillRect(x - 35, y - 8, 70, 16); } if (type === "shadow") { for (let i = 0; i < 20; i++) { const angle = i * 0.9 - now * 0.01; const radius = 10 + (i % 6) * 8; const px = x + Math.cos(angle) * radius; const py = y + Math.sin(angle) * radius; ctx.fillStyle = i % 2 ? "#8d4ab1" : "#32184e"; ctx.fillRect(Math.floor(px), Math.floor(py), 9, 9); } } ctx.restore(); } function drawFloatingTexts(now) { for (let i = floatingTexts.length - 1; i >= 0; i--) { const item = floatingTexts[i]; const age = now - item.created; if (age >= item.duration) { floatingTexts.splice(i, 1); continue; } const progress = age / item.duration; ctx.save(); ctx.globalAlpha = 1 - progress; drawPixelText( item.text, item.x, item.y - progress * 70, item.size, "center", item.color ); ctx.restore(); } } function render(now) { ctx.clearRect(0, 0, canvas.width, canvas.height); drawBackground(now); drawCharacters(now); drawSlashEffects(now); drawSpellEffects(now); drawFloatingTexts(now); if (now < animation.flashUntil) { const alpha = clamp((animation.flashUntil - now) / 180, 0, 0.5); ctx.fillStyle = `rgba(${animation.flashColor},${alpha})`; ctx.fillRect(0, 0, canvas.width, canvas.height); } requestAnimationFrame(render); } buttons.attack.addEventListener("click", playerAttack); buttons.magic.addEventListener("click", showMagicMenu); buttons.defend.addEventListener("click", playerDefend); buttons.item.addEventListener("click", showItemMenu); buttons.run.addEventListener("click", attemptRun); buttons.next.addEventListener("click", () => { startBattle(enemyIndex); }); buttons.restart.addEventListener("click", restartGame); document.querySelectorAll("[data-shop]").forEach(button => { button.addEventListener("click", () => buyShopItem(button.dataset.shop)); }); document.addEventListener("keydown", event => { if (event.repeat) return; if (phase !== "battle" || inputLocked) return; if (event.key === "Escape" && openMenu) { showCommandGrid(); return; } if (openMenu) return; switch (event.key) { case "1": playerAttack(); break; case "2": showMagicMenu(); break; case "3": playerDefend(); break; case "4": showItemMenu(); break; case "5": attemptRun(); break; } }); startBattle(0); requestAnimationFrame(render); </script> </body> </html>
