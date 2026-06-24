@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>퐁 게임</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0a; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: monospace; color: #fff; }
+h1 { margin-bottom: 10px; font-size: 28px; color: #0ff; text-shadow: 0 0 15px #0ff; }
+#score { font-size: 24px; margin-bottom: 10px; color: #0f0; letter-spacing: 5px; }
+canvas { border: 2px solid #0ff; border-radius: 4px; box-shadow: 0 0 20px rgba(0,255,255,0.3); }
+#info { margin-top: 10px; font-size: 13px; color: #666; }
+</style>
+</head>
+<body>
+<h1>🏓 퐁</h1>
+<div id="score">0 : 0</div>
+<canvas id="game" width="600" height="400"></canvas>
+<div id="info">W/S = 왼쪽 패들 | ↑/↓ = 오른쪽 패들 | SPACE = 시작</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+
+const W = canvas.width, H = canvas.height;
+const paddleH = 80, paddleW = 12, ballR = 8;
+const paddleSpeed = 6;
+
+let p1 = {x: 20, y: H/2 - paddleH/2, score: 0, dy: 0};
+let p2 = {x: W - 20 - paddleW, y: H/2 - paddleH/2, score: 0, dy: 0};
+let ball = {x: W/2, y: H/2, dx: 4, dy: 3};
+let running = false;
+
+function resetBall() {
+  ball.x = W/2; ball.y = H/2;
+  ball.dx = (Math.random() > 0.5 ? 1 : -1) * 4;
+  ball.dy = (Math.random() - 0.5) * 6;
+}
+
+function update() {
+  // Paddle movement
+  p1.y += p1.dy;
+  p2.y += p2.dy;
+  p1.y = Math.max(0, Math.min(H - paddleH, p1.y));
+  p2.y = Math.max(0, Math.min(H - paddleH, p2.y));
+
+  if (!running) return;
+
+  // Ball movement
+  ball.x += ball.dx;
+  ball.y += ball.dy;
+
+  // Wall bounce
+  if (ball.y - ballR < 0 || ball.y + ballR > H) ball.dy *= -1;
+
+  // Paddle collision
+  function paddleHit(p) {
+    return ball.y + ballR > p.y && ball.y - ballR < p.y + paddleH;
+  }
+  if (ball.dx < 0 && ball.x - ballR < p1.x + paddleW && paddleHit(p1)) {
+    ball.dx *= -1.05;
+    ball.dy += (ball.y - (p1.y + paddleH/2)) * 0.1;
+  }
+  if (ball.dx > 0 && ball.x + ballR > p2.x && paddleHit(p2)) {
+    ball.dx *= -1.05;
+    ball.dy += (ball.y - (p2.y + paddleH/2)) * 0.1;
+  }
+
+  // Score
+  if (ball.x < 0) { p2.score++; resetBall(); running = false; }
+  if (ball.x > W) { p1.score++; resetBall(); running = false; }
+  scoreEl.textContent = `${p1.score} : ${p2.score}`;
+}
+
+function draw() {
+  // Background
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, W, H);
+  
+  // Center line
+  ctx.setLineDash([10, 10]);
+  ctx.strokeStyle = '#333';
+  ctx.beginPath();
+  ctx.moveTo(W/2, 0);
+  ctx.lineTo(W/2, H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Paddles
+  ctx.shadowColor = '#0ff';
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = '#0ff';
+  ctx.fillRect(p1.x, p1.y, paddleW, paddleH);
+  ctx.fillStyle = '#f0f';
+  ctx.fillRect(p2.x, p2.y, paddleW, paddleH);
+
+  // Ball
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = '#fff';
+  ctx.shadowBlur = 20;
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ballR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  if (!running) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#0ff';
+    ctx.font = '24px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SPACE로 시작', W/2, H/2);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === ' ') { running = true; resetBall(); }
+  if (e.key === 'w' || e.key === 'W') p1.dy = -paddleSpeed;
+  if (e.key === 's' || e.key === 'S') p1.dy = paddleSpeed;
+  if (e.key === 'ArrowUp') { e.preventDefault(); p2.dy = -paddleSpeed; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); p2.dy = paddleSpeed; }
+});
+
+document.addEventListener('keyup', e => {
+  if (e.key === 'w' || e.key === 'W' || e.key === 's' || e.key === 'S') p1.dy = 0;
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') p2.dy = 0;
+});
+
+loop();
+</script>
+</body>
+</html>
