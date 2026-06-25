@@ -20,7 +20,7 @@
 | **ChatGPT 5.5** | 게임 코드 생성 (medium~high 사고수준) |
 | **SeleniumBase UC** | 브라우저 자동화 (Cloudflare 우회) |
 | **Python 스크립트** | 크롤러 제어 및 코드 추출 |
-| **GitHub API** | 레포 생성 및 커밋 자동화 |
+
 
 ### 자동화 워크플로우
 ```
@@ -28,7 +28,6 @@
 2. ChatGPT 크롤러 10개 동시 실행 (프로필 1~10)
 3. 응답에서 HTML 코드 블록 추출
 4. 각 게임 폴더에 index.html 저장
-5. git add → commit → push 자동화
 ```
 
 ### 크롤러 프로필
