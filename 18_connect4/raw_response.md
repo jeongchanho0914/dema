@@ -1,0 +1,1364 @@
+<!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" /> <meta name="theme-color" content="#090d1a" /> <title>Connect Four</title> <style> :root { --bg: #070a14; --surface: rgba(17, 24, 45, 0.78); --surface-strong: #121a31; --surface-soft: rgba(255, 255, 255, 0.055); --text: #f7f9ff; --muted: #99a4c3; --blue: #4263eb; --blue-light: #748ffc; --red: #ff3f5f; --red-dark: #c7183a; --yellow: #ffd43b; --yellow-dark: #e1a900; --green: #45e0a8; --board-gap: clamp(6px, 1.15vw, 12px); --radius: 26px; --shadow: 0 28px 80px rgba(0, 0, 0, 0.46), 0 10px 30px rgba(0, 0, 0, 0.32); }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--bg);
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100svh;
+  margin: 0;
+  color: var(--text);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(66, 99, 235, 0.25), transparent 34%),
+    radial-gradient(circle at 86% 12%, rgba(148, 79, 255, 0.2), transparent 29%),
+    radial-gradient(circle at 48% 110%, rgba(0, 220, 175, 0.12), transparent 38%),
+    linear-gradient(145deg, #050712 0%, #0a1022 46%, #070a14 100%);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.28;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(to bottom, black, transparent 88%);
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+}
+
+.app {
+  position: relative;
+  z-index: 1;
+  width: min(1120px, calc(100% - 28px));
+  margin: 0 auto;
+  padding:
+    max(20px, env(safe-area-inset-top))
+    0
+    max(28px, env(safe-area-inset-bottom));
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+
+.brand-mark {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-radius: 17px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02)),
+    #1a2450;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 12px 30px rgba(28, 55, 170, 0.35);
+  overflow: hidden;
+}
+
+.brand-mark::before,
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  top: 16px;
+  box-shadow:
+    inset 2px 3px 4px rgba(255, 255, 255, 0.45),
+    inset -3px -4px 6px rgba(0, 0, 0, 0.25);
+}
+
+.brand-mark::before {
+  left: 8px;
+  background: linear-gradient(145deg, #ff7890, var(--red) 55%, var(--red-dark));
+}
+
+.brand-mark::after {
+  right: 8px;
+  background: linear-gradient(145deg, #fff19a, var(--yellow) 55%, var(--yellow-dark));
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: clamp(1.35rem, 3vw, 2rem);
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.brand p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 45px;
+  height: 45px;
+  border-radius: 14px;
+  cursor: pointer;
+  color: #dbe2ff;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.icon-button:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.icon-button:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 285px;
+  align-items: start;
+  gap: 20px;
+}
+
+.game-card,
+.panel {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025)),
+    var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.game-card {
+  min-width: 0;
+  border-radius: 32px;
+  padding: clamp(15px, 2.5vw, 27px);
+  overflow: hidden;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 56px;
+  margin-bottom: 12px;
+}
+
+.turn-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.turn-chip {
+  width: 39px;
+  height: 39px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  box-shadow:
+    inset 4px 5px 7px rgba(255, 255, 255, 0.42),
+    inset -5px -6px 8px rgba(0, 0, 0, 0.28),
+    0 7px 18px rgba(0, 0, 0, 0.32);
+  transition: background 200ms ease;
+}
+
+.turn-copy {
+  min-width: 0;
+}
+
+.turn-label {
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.turn-text {
+  margin: 0;
+  font-size: clamp(1rem, 2.3vw, 1.3rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thinking {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.thinking.visible {
+  display: flex;
+}
+
+.thinking i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: thinkingDot 1s ease-in-out infinite;
+}
+
+.thinking i:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.thinking i:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes thinkingDot {
+  0%, 60%, 100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
+.move-counter {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border-radius: 12px;
+  color: #cbd3ef;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.board-shell {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding-top: clamp(48px, 7vw, 68px);
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.preview-row {
+  position: absolute;
+  inset: 0 0 auto;
+  height: clamp(45px, 7vw, 64px);
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--board-gap);
+  padding: 0 clamp(13px, 2vw, 21px);
+  pointer-events: none;
+  z-index: 8;
+}
+
+.preview-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.ghost-chip {
+  width: min(72%, 66px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: 0;
+  transform: translateY(-10px) scale(0.76);
+  filter: saturate(0.88);
+  transition:
+    opacity 150ms ease,
+    transform 180ms cubic-bezier(0.2, 1.2, 0.4, 1);
+  box-shadow:
+    inset 4px 5px 7px rgba(255, 255, 255, 0.34),
+    inset -5px -6px 8px rgba(0, 0, 0, 0.2),
+    0 10px 25px rgba(0, 0, 0, 0.28);
+}
+
+.ghost-chip.visible {
+  opacity: 0.82;
+  transform: translateY(0) scale(1);
+}
+
+.board-wrap {
+  position: relative;
+  border-radius: clamp(18px, 3vw, 29px);
+  padding: clamp(12px, 2vw, 20px);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.22), transparent 26%),
+    linear-gradient(145deg, #3f63ed 0%, #2446c7 57%, #17318f 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -8px 20px rgba(0, 0, 0, 0.24),
+    0 24px 55px rgba(12, 32, 120, 0.42),
+    0 8px 18px rgba(0, 0, 0, 0.36);
+  overflow: hidden;
+}
+
+.board-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      110deg,
+      transparent 0 28%,
+      rgba(255, 255, 255, 0.08) 40%,
+      transparent 52%
+    );
+  transform: translateX(-100%);
+  animation: boardShine 8s ease-in-out infinite;
+}
+
+@keyframes boardShine {
+  0%, 70%, 100% {
+    transform: translateX(-110%);
+  }
+  82% {
+    transform: translateX(110%);
+  }
+}
+
+.board {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(6, 1fr);
+  gap: var(--board-gap);
+}
+
+.slot {
+  position: relative;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  cursor: pointer;
+  background:
+    radial-gradient(
+      circle at 52% 48%,
+      rgba(1, 4, 16, 0.92) 0 54%,
+      rgba(2, 7, 29, 0.94) 58% 65%,
+      rgba(255, 255, 255, 0.12) 66% 69%,
+      rgba(5, 13, 48, 0.7) 70%
+    );
+  box-shadow:
+    inset 0 7px 12px rgba(0, 0, 0, 0.52),
+    0 1px 0 rgba(255, 255, 255, 0.17);
+}
+
+.slot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  opacity: 0;
+  background: rgba(255, 255, 255, 0.08);
+  transition: opacity 130ms ease;
+}
+
+.board[data-hover-column="0"] .slot[data-col="0"]::after,
+.board[data-hover-column="1"] .slot[data-col="1"]::after,
+.board[data-hover-column="2"] .slot[data-col="2"]::after,
+.board[data-hover-column="3"] .slot[data-col="3"]::after,
+.board[data-hover-column="4"] .slot[data-col="4"]::after,
+.board[data-hover-column="5"] .slot[data-col="5"]::after,
+.board[data-hover-column="6"] .slot[data-col="6"]::after {
+  opacity: 1;
+}
+
+.chip {
+  position: absolute;
+  z-index: 2;
+  width: 82%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(0.85);
+  will-change: transform;
+  pointer-events: none;
+  box-shadow:
+    inset 5px 6px 8px rgba(255, 255, 255, 0.42),
+    inset -6px -8px 10px rgba(0, 0, 0, 0.28),
+    0 5px 10px rgba(0, 0, 0, 0.32);
+}
+
+.chip::before {
+  content: "";
+  position: absolute;
+  width: 36%;
+  height: 22%;
+  left: 17%;
+  top: 13%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.38);
+  filter: blur(1px);
+  transform: rotate(-25deg);
+}
+
+.chip::after {
+  content: "";
+  position: absolute;
+  inset: 15%;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.07);
+}
+
+.chip.red,
+.turn-chip.red,
+.ghost-chip.red,
+.mini-chip.red,
+.color-dot.red {
+  background:
+    radial-gradient(circle at 32% 24%, #ff9aac 0 4%, transparent 5%),
+    linear-gradient(145deg, #ff7088 0%, var(--red) 45%, var(--red-dark) 100%);
+}
+
+.chip.yellow,
+.turn-chip.yellow,
+.ghost-chip.yellow,
+.mini-chip.yellow,
+.color-dot.yellow {
+  background:
+    radial-gradient(circle at 32% 24%, #fff6b6 0 4%, transparent 5%),
+    linear-gradient(145deg, #ffed83 0%, var(--yellow) 45%, var(--yellow-dark) 100%);
+}
+
+.chip.placed {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.chip.dropping {
+  opacity: 1;
+  animation:
+    chipDrop var(--drop-duration, 430ms)
+      cubic-bezier(0.18, 0.7, 0.28, 1.12) both,
+    chipSquash 210ms ease-out var(--drop-duration, 430ms);
+}
+
+@keyframes chipDrop {
+  from {
+    transform: translateY(var(--drop-from, -500px)) scale(0.94);
+  }
+  76% {
+    transform: translateY(5px) scale(1);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chipSquash {
+  0% {
+    border-radius: 50%;
+  }
+  45% {
+    border-radius: 46% 46% 54% 54%;
+  }
+  100% {
+    border-radius: 50%;
+  }
+}
+
+.chip.winner {
+  z-index: 5;
+  animation: winnerPulse 820ms ease-in-out infinite alternate;
+}
+
+@keyframes winnerPulse {
+  from {
+    transform: scale(0.95);
+    filter: brightness(1);
+    box-shadow:
+      inset 5px 6px 8px rgba(255, 255, 255, 0.42),
+      inset -6px -8px 10px rgba(0, 0, 0, 0.28),
+      0 0 0 0 rgba(255, 255, 255, 0.1),
+      0 5px 10px rgba(0, 0, 0, 0.32);
+  }
+  to {
+    transform: scale(1.07);
+    filter: brightness(1.18);
+    box-shadow:
+      inset 5px 6px 8px rgba(255, 255, 255, 0.48),
+      inset -6px -8px 10px rgba(0, 0, 0, 0.22),
+      0 0 0 6px rgba(255, 255, 255, 0.22),
+      0 0 28px rgba(255, 255, 255, 0.45);
+  }
+}
+
+.win-line {
+  position: absolute;
+  z-index: 7;
+  height: clamp(5px, 0.8vw, 8px);
+  border-radius: 999px;
+  pointer-events: none;
+  opacity: 0;
+  transform-origin: left center;
+  transform: rotate(var(--line-angle, 0deg)) scaleX(0);
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.98) 12%,
+      rgba(255, 255, 255, 0.98) 88%,
+      transparent
+    );
+  box-shadow:
+    0 0 8px rgba(255, 255, 255, 0.9),
+    0 0 22px rgba(255, 255, 255, 0.65);
+}
+
+.win-line.visible {
+  opacity: 1;
+  animation:
+    drawLine 520ms cubic-bezier(0.2, 0.9, 0.3, 1) forwards,
+    lineGlow 900ms ease-in-out 520ms infinite alternate;
+}
+
+@keyframes drawLine {
+  from {
+    transform: rotate(var(--line-angle, 0deg)) scaleX(0);
+  }
+  to {
+    transform: rotate(var(--line-angle, 0deg)) scaleX(1);
+  }
+}
+
+@keyframes lineGlow {
+  from {
+    filter: brightness(0.9);
+    opacity: 0.72;
+  }
+  to {
+    filter: brightness(1.35);
+    opacity: 1;
+  }
+}
+
+.board-blocker {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: none;
+  cursor: wait;
+}
+
+.board-blocker.active {
+  display: block;
+}
+
+.board-stand {
+  width: 92%;
+  height: 19px;
+  margin: -2px auto 0;
+  border-radius: 0 0 18px 18px;
+  background: linear-gradient(to bottom, #2444bc, #132876);
+  box-shadow:
+    inset 0 -4px 8px rgba(0, 0, 0, 0.24),
+    0 10px 24px rgba(0, 0, 0, 0.34);
+}
+
+.board-feet {
+  display: flex;
+  justify-content: space-between;
+  width: 78%;
+  margin: 0 auto;
+}
+
+.board-feet span {
+  width: 18%;
+  height: 13px;
+  border-radius: 0 0 10px 10px;
+  background: linear-gradient(to bottom, #17318f, #0c1949);
+  box-shadow: 0 7px 13px rgba(0, 0, 0, 0.33);
+}
+
+.controls-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 48px;
+  border-radius: 15px;
+  cursor: pointer;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  transition:
+    transform 150ms ease,
+    filter 150ms ease,
+    border-color 150ms ease;
+}
+
+.primary-button {
+  flex: 1;
+  color: white;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.17), transparent 45%),
+    linear-gradient(135deg, #5d79ff, #3f55dc);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 12px 28px rgba(45, 66, 190, 0.35);
+}
+
+.secondary-button {
+  padding: 0 18px;
+  color: #d8def2;
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.primary-button:hover,
+.secondary-button:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+}
+
+.primary-button:active,
+.secondary-button:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.side {
+  display: grid;
+  gap: 16px;
+}
+
+.panel {
+  border-radius: 24px;
+  padding: 18px;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.panel-title h2 {
+  margin: 0;
+  font-size: 0.94rem;
+  letter-spacing: -0.015em;
+}
+
+.panel-title span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.scoreboard {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.score-card {
+  position: relative;
+  min-width: 0;
+  padding: 13px 12px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.052);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.score-card.active {
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 0 24px rgba(255, 255, 255, 0.035);
+}
+
+.score-player {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.mini-chip,
+.color-dot {
+  flex: 0 0 auto;
+  border-radius: 50%;
+  box-shadow:
+    inset 2px 2px 3px rgba(255, 255, 255, 0.36),
+    inset -2px -3px 4px rgba(0, 0, 0, 0.2);
+}
+
+.mini-chip {
+  width: 16px;
+  height: 16px;
+}
+
+.score-player span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.score-number {
+  margin-top: 7px;
+  font-size: 1.7rem;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.draw-card {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.draw-card strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.field {
+  margin-top: 13px;
+}
+
+.field:first-of-type {
+  margin-top: 0;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 5px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.segmented button {
+  min-height: 38px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.76rem;
+  font-weight: 800;
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.segmented button.active {
+  color: white;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05)),
+    #26345e;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 5px 12px rgba(0, 0, 0, 0.2);
+}
+
+.segmented button:active {
+  transform: scale(0.97);
+}
+
+.difficulty {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.color-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.color-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  border-radius: 13px;
+  cursor: pointer;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  font-size: 0.78rem;
+  font-weight: 800;
+  transition:
+    transform 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.color-option.active {
+  color: white;
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.085);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.11);
+}
+
+.color-option:hover {
+  transform: translateY(-1px);
+}
+
+.color-dot {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-note {
+  margin: 13px 0 0;
+  color: #7f8aa9;
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.ai-fields.hidden {
+  display: none;
+}
+
+.sound-off .sound-on-icon,
+.sound-off .sound-wave {
+  display: none;
+}
+
+.sound-off .sound-off-icon {
+  display: block;
+}
+
+.sound-off-icon {
+  display: none;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  opacity: 0;
+  visibility: hidden;
+  background: rgba(2, 5, 14, 0.68);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  transition:
+    opacity 220ms ease,
+    visibility 220ms ease;
+}
+
+.modal-backdrop.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.result-modal {
+  width: min(390px, 100%);
+  padding: 28px;
+  border-radius: 28px;
+  text-align: center;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035)),
+    #111932;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow:
+    0 32px 100px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transform: translateY(18px) scale(0.94);
+  transition: transform 260ms cubic-bezier(0.18, 0.9, 0.35, 1.1);
+}
+
+.modal-backdrop.open .result-modal {
+  transform: translateY(0) scale(1);
+}
+
+.result-icon {
+  position: relative;
+  width: 87px;
+  height: 87px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.result-icon .big-chip {
+  width: 61px;
+  height: 61px;
+  border-radius: 50%;
+  box-shadow:
+    inset 5px 6px 8px rgba(255, 255, 255, 0.42),
+    inset -6px -8px 10px rgba(0, 0, 0, 0.28),
+    0 9px 20px rgba(0, 0, 0, 0.34);
+  animation: modalChip 900ms ease-in-out infinite alternate;
+}
+
+@keyframes modalChip {
+  from {
+    transform: rotate(-5deg) scale(0.97);
+  }
+  to {
+    transform: rotate(5deg) scale(1.06);
+  }
+}
+
+.result-modal h2 {
+  margin: 0;
+  font-size: 1.65rem;
+  letter-spacing: -0.04em;
+}
+
+.result-modal p {
+  margin: 9px 0 23px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.result-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.result-actions button {
+  min-height: 47px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.confetti {
+  position: fixed;
+  z-index: 49;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -20px;
+  width: 10px;
+  height: 16px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: confettiFall var(--fall-duration) linear var(--fall-delay) forwards;
+}
+
+@keyframes confettiFall {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, -5vh, 0) rotate(0deg);
+  }
+  100% {
+    opacity: 0.9;
+    transform: translate3d(var(--drift), 110vh, 0) rotate(var(--rotation));
+  }
+}
+
+.shake {
+  animation: boardShake 350ms ease;
+}
+
+@keyframes boardShake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+}
+
+@media (max-width: 880px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .side {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .panel:first-child {
+    order: 2;
+  }
+}
+
+@media (max-width: 620px) {
+  .app {
+    width: min(100% - 18px, 1120px);
+  }
+
+  .topbar {
+    margin-bottom: 12px;
+  }
+
+  .brand-mark {
+    width: 45px;
+    height: 45px;
+    border-radius: 14px;
+  }
+
+  .brand-mark::before,
+  .brand-mark::after {
+    width: 17px;
+    height: 17px;
+    top: 14px;
+  }
+
+  .brand p {
+    display: none;
+  }
+
+  .game-card {
+    border-radius: 24px;
+  }
+
+  .side {
+    grid-template-columns: 1fr;
+  }
+
+  .panel:first-child {
+    order: 0;
+  }
+
+  .controls-row {
+    margin-top: 17px;
+  }
+
+  .status-row {
+    min-height: 48px;
+    margin-bottom: 7px;
+  }
+
+  .turn-chip {
+    width: 32px;
+    height: 32px;
+  }
+
+  .move-counter {
+    padding: 7px 9px;
+    font-size: 0.69rem;
+  }
+}
+
+@media (max-width: 390px) {
+  :root {
+    --board-gap: 5px;
+  }
+
+  .game-card {
+    padding: 12px;
+  }
+
+  .board-wrap {
+    padding: 10px;
+  }
+
+  .secondary-button {
+    padding-inline: 13px;
+  }
+
+  .result-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style> </head> <body> <main class="app"> <header class="topbar"> <div class="brand"> <div class="brand-mark" aria-hidden="true"></div> <div class="brand-copy"> <h1>Connect Four</h1> <p>Strategy, gravity, and four in a row.</p> </div> </div>
+  <button
+    id="soundButton"
+    class="icon-button"
+    type="button"
+    aria-label="Toggle sound"
+    title="Toggle sound"
+  >
+    <svg
+      class="sound-on-icon"
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M11 5 6.7 8.5H3.5v7h3.2L11 19V5Z"
+        stroke="currentColor"
+        stroke-width="1.9"
+        stroke-linejoin="round"
+      />
+      <path
+        class="sound-wave"
+        d="M15 8.4a5 5 0 0 1 0 7.2M18 5.7a8.8 8.8 0 0 1 0 12.6"
+        stroke="currentColor"
+        stroke-width="1.9"
+        stroke-linecap="round"
+      />
+    </svg>
+
+    <svg
+      class="sound-off-icon"
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M11 5 6.7 8.5H3.5v7h3.2L11 19V5Z"
+        stroke="currentColor"
+        stroke-width="1.9"
+        stroke-linejoin="round"
+      />
+      <path
+        d="m16 9 5 5m0-5-5 5"
+        stroke="currentColor"
+        stroke-width="1.9"
+        stroke-linecap="round"
+      />
+    </svg>
+  </button>
+</header>
+
+<section class="layout">
+  <div class="game-card">
+    <div class="status-row">
+      <div class="turn-box">
+        <div id="turnChip" class="turn-chip red" aria-hidden="true"></div>
+        <div class="turn-copy">
+          <p class="turn-label">Current turn</p>
+          <p id="turnText" class="turn-text">Player 1</p>
+        </div>
+      </div>
+
+      <div>
+        <div id="thinking" class="thinking" aria-live="polite">
+          AI thinking
+          <i></i><i></i><i></i>
+        </div>
+        <div id="moveCounter" class="move-counter">Move 1</div>
+      </div>
+    </div>
+
+    <div id="boardShell" class="board-shell">
+      <div id="previewRow" class="preview-row" aria-hidden="true"></div>
+
+      <div id="boardWrap" class="board-wrap">
+        <div
+          id="board"
+          class="board"
+          role="grid"
+          aria-label="Connect Four board"
+        ></div>
+        <div id="winLine" class="win-line"></div>
+        <div id="boardBlocker" class="board-blocker"></div>
+      </div>
+
+      <div class="board-stand"></div>
+      <div class="board-feet" aria-hidden="true">
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+
+    <div class="controls-row">
+      <button id="restartButton" class="primary-button" type="button">
+        Restart Round
+      </button>
+      <button id="resetScoreButton" class="secondary-button" type="button">
+        Reset Score
+      </button>
+    </div>
+  </div>
+
+  <aside class="side">
+    <section class="panel">
+      <div class="panel-title">
+        <h2>Match Score</h2>
+        <span id="roundLabel">Round 1</span>
+      </div>
+
+      <div class="scoreboard">
+        <div id="redScoreCard" class="score-card active">
+          <div class="score-player">
+            <span class="mini-chip red"></span>
+            <span id="redScoreName">Player 1</span>
+          </div>
+          <div id="redScore" class="score-number">0</div>
+        </div>
+
+        <div id="yellowScoreCard" class="score-card">
+          <div class="score-player">
+            <span class="mini-chip yellow"></span>
+            <span id="yellowScoreName">Computer</span>
+          </div>
+          <div id="yellowScore" class="score-number">0</div>
+        </div>
+
+        <div class="draw-card">
+          <span>Draws</span>
+          <strong id="drawScore">0</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">
+        <h2>Game Settings</h2>
+        <span>New round on change</span>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Mode</span>
+        <div id="modeControl" class="segmented">
+          <button type="button" data-mode="ai" class="active">
+            Vs AI
+          </button>
+          <button type="button" data-mode="pvp">
+            2 Players
+          </button>
+        </div>
+      </div>
+
+      <div id="aiFields" class="ai-fields">
+        <div class="field">
+          <span class="field-label">Difficulty</span>
+          <div id="difficultyControl" class="segmented difficulty">
+            <button type="button" data-difficulty="easy">Easy</button>
+            <button type="button" data-difficulty="medium">Medium</button>
+            <button type="button" data-difficulty="hard" class="active">
+              Hard
+            </button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Your Color</span>
+          <div id="colorControl" class="color-picker">
+            <button
+              type="button"
+              class="color-option active"
+              data-color="red"
+            >
+              <span class="color-dot red"></span>
+              Red
+            </button>
+            <button
+              type="button"
+              class="color-option"
+              data-color="yellow"
+            >
+              <span class="color-dot yellow"></span>
+              Yellow
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <p class="settings-note">
+        Hard mode uses alpha-beta search with tactical move ordering.
+      </p>
+    </section>
+  </aside>
+</section>
+</main> <div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-modal="true"> <div class="result-modal"> <div id="resultIcon" class="result-icon"> <div id="resultChip" class="big-chip red"></div> </div> <h2 id="resultTitle">Player 1 Wins!</h2> <p id="resultMessage">Four connected chips. Brilliant move.</p> <div class="result-actions"> <button id="modalResetButton" class="secondary-button" type="button"> Reset Score </button> <button id="nextRoundButton" class="primary-button" type="button"> Next Round </button> </div> </div> </div> <div id="confetti" class="c
