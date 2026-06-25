@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>핀볼 - Arcade Pinball</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+}
+#gameContainer {
+  position: relative;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+#scorePanel {
+  color: #0ff;
+  font-size: 14px;
+  width: 140px;
+  text-align: center;
+}
+#scorePanel h2 { color: #f0f; font-size: 20px; text-shadow: 0 0 10px #f0f; }
+#scorePanel .score { font-size: 24px; color: #0f0; text-shadow: 0 0 10px #0f0; margin: 8px 0; }
+#scorePanel .info { font-size: 12px; color: #888; margin: 4px 0; }
+#scorePanel .multiplier { font-size: 18px; color: #ff0; text-shadow: 0 0 10px #ff0; }
+#scorePanel .balls { font-size: 16px; color: #f80; margin-top: 10px; }
+#scorePanel .combo { font-size: 14px; color: #f0f; margin-top: 5px; }
+#scorePanel .instructions {
+  font-size: 10px;
+  color: #666;
+  margin-top: 20px;
+  line-height: 1.6;
+}
+canvas {
+  border: 3px solid #333;
+  border-radius: 8px;
+  box-shadow: 0 0 30px rgba(0,255,255,0.2), inset 0 0 60px rgba(0,0,0,0.5);
+}
+#startScreen {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  text-align: center;
+  z-index: 10;
+  pointer-events: none;
+}
+#startScreen h1 {
+  font-size: 48px;
+  color: #f0f;
+  text-shadow: 0 0 20px #f0f, 0 0 40px #f0f;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+#startScreen p {
+  font-size: 16px;
+  color: #0ff;
+  margin-top: 20px;
+  animation: blink 1s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+<div id="gameContainer">
+  <div id="scorePanel">
+    <h2>핀볼</h2>
+    <div class="score" id="scoreDisplay">0</div>
+    <div class="multiplier">x<span id="multiplierDisplay">1</span></div>
+    <div class="balls" id="ballsDisplay">● ● ●</div>
+    <div class="combo" id="comboDisplay"></div>
+    <div class="info" id="tiltDisplay"></div>
+    <div class="info" id="saveDisplay"></div>
+    <div class="instructions">
+      ← → 또는 Z / M : 플리퍼<br>
+      SPACE : 스프링 발사<br>
+      T : 틸트 경고
+    </div>
+  </div>
+  <canvas id="pinball" width="400" height="700"></canvas>
+  <div id="startScreen">
+    <h1>핀볼</h1>
+    <p>SPACE 를 눌러 시작</p>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('pinball');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// Audio Context
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+}
+
+function playSound(freq, dur, type='square', vol=0.15) {
+  ensureAudio();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + dur);
+}
+
+const SFX = {
+  bumper: () => { playSound(800, 0.1); playSound(1200, 0.15); },
+  flipper: () => playSound(200, 0.08, 'sawtooth'),
+  launch: () => { playSound(150, 0.3, 'sawtooth'); playSound(300, 0.2); },
+  drain: () => { playSound(200, 0.5, 'sawtooth', 0.2); playSound(100, 0.8, 'sawtooth', 0.2); },
+  target: () => playSound(1000, 0.1, 'sine'),
+  sling: () => playSound(600, 0.08, 'triangle'),
+  bonus: () => { playSound(523, 0.15); setTimeout(()=>playSound(659, 0.15), 100); setTimeout(()=>playSound(784, 0.2), 200); }
+};
+
+// Game state
+const GRAVITY = 0.15;
+const BALL_RADIUS = 8;
+const FLIPPER_LEN = 60;
+const FLIPPER_W = 10;
+const DAMPING = 0.98;
+
+let state = 'start'; // start, ready, playing, launching, draining, gameover
+let score = 0, lives = 3, multiplier = 1, combo = 0, comboTimer = 0;
+let tiltWarnings = 0, isTilted = false;
+let ballSaveActive = false, ballSaveTimer = 0;
+let launchPower = 0, launching = false;
+
+let ball = { x: 380, y: 600, vx: 0, vy: 0, active: false };
+let leftFlipper = { x: 130, y: 640, angle: 0.4, targetAngle: 0.4, active: false };
+let rightFlipper = { x: 270, y: 640, angle: Math.PI - 0.4, targetAngle: Math.PI - 0.4, active: false };
+
+// Table elements
+const bumpers = [
+  { x: 200, y: 200, r: 25, score: 100, glow: 0 },
+  { x: 140, y: 260, r: 22, score: 150, glow: 0 },
+  { x: 260, y: 260, r: 22, score: 150, glow: 0 },
+  { x: 200, y: 330, r: 20, score: 200, glow: 0 },
+];
+
+const targets = [
+  { x: 60, y: 180, w: 40, h: 8, lit: false, score: 300, color: '#f00' },
+  { x: 60, y: 210, w: 40, h: 8, lit: false, score: 300, color: '#ff0' },
+  { x: 60, y: 240, w: 40, h: 8, lit: false, score: 300, color: '#0f0' },
+  { x: 60, y: 270, w: 40, h: 8, lit: false, score: 300, color: '#0ff' },
+  { x: 60, y: 300, w: 40, h: 8, lit: false, score: 300, color: '#f0f' },
+];
+
+const slingshots = [
+  { x1: 90, y1: 520, x2: 130, y2: 600, glow: 0 },
+  { x1: 310, y1: 520, x2: 270, y2: 600, glow: 0 },
+];
+
+const posts = [
+  { x: 100, y: 420, r: 6 },
+  { x: 300, y: 420, r: 6 },
+  { x: 160, y: 480, r: 5 },
+  { x: 240, y: 480, r: 5 },
+  { x: 200, y: 150, r: 5 },
+  { x: 130, y: 170, r: 5 },
+  { x: 270, y: 170, r: 5 },
+];
+
+const lanes = [
+  { x1: 100, y1: 100, x2: 100, y2: 160, glow: 0 },
+  { x1: 300, y1: 100, x2: 300, y2: 160, glow: 0 },
+  { x1: 200, y1: 80, x2: 200, y2: 130, glow: 0 },
+];
+
+// Table walls
+const walls = [
+  { x1: 20, y1: 50, x2: 350, y2: 50 },
+  { x1: 20, y1: 50, x2: 20, y2: 650 },
+  { x1: 350, y1: 50, x2: 370, y2: 100 },
+  { x1: 20, y1: 650, x2: 70, y2: 660 },
+  { x1: 330, y1: 660, x2: 380, y2: 650 },
+  // Launch lane
+  { x1: 355, y1: 50, x2: 395, y2: 50 },
+  { x1: 355, y1: 50, x2: 355, y2: 650 },
+  { x1: 395, y1: 50, x2: 395, y2: 650 },
+];
+
+function resetBall() {
+  ball.x = 380;
+  ball.y = 580;
+  ball.vx = 0;
+  ball.vy = 0;
+  ball.active = false;
+  state = 'launching';
+  launchPower = 0;
+  launching = false;
+}
+
+function startGame() {
+  score = 0;
+  lives = 3;
+  multiplier = 1;
+  combo = 0;
+  comboTimer = 0;
+  tiltWarnings = 0;
+  isTilted = false;
+  ballSaveActive = false;
+  targets.forEach(t => t.lit = false);
+  resetBall();
+  updateUI();
+  state = 'launching';
+}
+
+function updateUI() {
+  document.getElementById('scoreDisplay').textContent = score.toLocaleString();
+  document.getElementById('multiplierDisplay').textContent = multiplier;
+  let ballsStr = '';
+  for (let i = 0; i < 3; i++) ballsStr += i < lives ? '● ' : '○ ';
+  document.getElementById('ballsDisplay').textContent = ballsStr.trim();
+  document.getElementById('comboDisplay').textContent = combo > 1 ? `${combo}x COMBO!` : '';
+  document.getElementById('tiltDisplay').textContent = isTilted ? '⚠ TILT' : tiltWarnings > 0 ? `틸트: ${tiltWarnings}/3` : '';
+  document.getElementById('saveDisplay').textContent = ballSaveActive ? 'BALL SAVE!' : '';
+}
+
+function addScore(pts) {
+  combo++;
+  comboTimer = 180;
+  let total = pts * multiplier * Math.min(combo, 5);
+  score += total;
+  if (combo > 1 && combo % 3 === 0) {
+    multiplier = Math.min(multiplier + 1, 10);
+    SFX.bonus();
+  }
+  updateUI();
+}
+
+function reflectWall(ball, wall) {
+  const dx = wall.x2 - wall.x1;
+  const dy = wall.y2 - wall.y1;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  if (len === 0) return;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const bx = ball.x - wall.x1;
+  const by = ball.y - wall.y1;
+  const dist = bx * nx + by * ny;
+  if (Math.abs(dist) > BALL_RADIUS + 5) return;
+
+  const proj = (ball.vx * dx + ball.vy * dy) / (len * len);
+  ball.vx -= 2 * proj * dx;
+  ball.vy -= 2 * proj * dy;
+  ball.vx *= 0.9;
+  ball.vy *= 0.9;
+
+  // Push ball out
+  if (dist < 0) {
+    ball.x += nx * (BALL_RADIUS - dist);
+    ball.y += ny * (BALL_RADIUS - dist);
+  } else {
+    ball.x -= nx * (BALL_RADIUS + dist);
+    ball.y -= ny * (BALL_RADIUS + dist);
+  }
+}
+
+function circleReflect(ball, cx, cy, cr) {
+  const dx = ball.x - cx;
+  const dy = ball.y - cy;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < BALL_RADIUS + cr && dist > 0) {
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const dot = ball.vx * nx + ball.vy * ny;
+    ball.vx -= 2 * dot * nx * 1.1;
+    ball.vy -= 2 * dot * ny * 1.1;
+    ball.x = cx + nx * (BALL_RADIUS + cr + 1);
+    ball.y = cy + ny * (BALL_RADIUS + cr + 1);
+    return true;
+  }
+  return false;
+}
+
+function updateFlippers() {
+  const flipSpeed = 0.25;
+  leftFlipper.active = keys['ArrowLeft'] || keys['KeyZ'];
+  rightFlipper.active = keys['ArrowRight'] || keys['KeyM'];
+
+  if (leftFlipper.active) {
+    if (leftFlipper.targetAngle > -0.5) leftFlipper.targetAngle -= 0.3;
+  } else {
+    leftFlipper.targetAngle = 0.4;
+  }
+  if (rightFlipper.active) {
+    if (rightFlipper.targetAngle < Math.PI + 0.5) rightFlipper.targetAngle += 0.3;
+  } else {
+    rightFlipper.targetAngle = Math.PI - 0.4;
+  }
+
+  const prevLeft = leftFlipper.angle;
+  const prevRight = rightFlipper.angle;
+
+  if (leftFlipper.angle > leftFlipper.targetAngle) {
+    leftFlipper.angle = Math.max(leftFlipper.targetAngle, leftFlipper.angle - flipSpeed);
+  } else {
+    leftFlipper.angle = Math.min(leftFlipper.targetAngle, leftFlipper.angle + flipSpeed * 0.5);
+  }
+  if (rightFlipper.angle < rightFlipper.targetAngle) {
+    rightFlipper.angle = Math.min(rightFlipper.targetAngle, rightFlipper.angle + flipSpeed);
+  } else {
+    rightFlipper.angle = Math.max(rightFlipper.targetAngle, rightFlipper.angle - flipSpeed * 0.5);
+  }
+
+  // Sound
+  if (!keys['ArrowLeft'] && !keys['KeyZ'] && prevLeft > leftFlipper.angle + 0.1) SFX.flipper();
+  if (!keys['ArrowRight'] && !keys['KeyM'] && prevRight < rightFlipper.angle - 0.1) SFX.flipper();
+
+  // Flipper collision
+  [leftFlipper, rightFlipper].forEach(f => {
+    const ex = f.x + Math.cos(f.angle) * FLIPPER_LEN;
+    const ey = f.y + Math.sin(f.angle) * FLIPPER_LEN;
+    const dx = ex - f.x;
+    const dy = ey - f.y;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    if (len === 0) return;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const bx = ball.x - f.x;
+    const by = ball.y - f.y;
+    const t = Math.max(0, Math.min(1, (bx * dx + by * dy) / (len * len)));
+    const closestX = f.x + t * dx;
+    const closestY = f.y + t * dy;
+    const distX = ball.x - closestX;
+    const distY = ball.y - closestY;
+    const dist = Math.sqrt(distX*distX + distY*distY);
+
+    if (dist < BALL_RADIUS + FLIPPER_W / 2) {
+      const nDistX = distX / dist;
+      const nDistY = distY / dist;
+      const overlap = BALL_RADIUS + FLIPPER_W / 2 - dist;
+      ball.x += nDistX * overlap;
+      ball.y += nDistY * overlap;
+
+      const speed = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+      const flipperMoving = f.active;
+      if (flipperMoving) {
+        ball.vy = -Math.max(8, speed * 0.8);
+        ball.vx += (f === leftFlipper ? 2 : -2);
+      } else {
+        const dot = ball.vx * nDistX + ball.vy * nDistY;
+        ball.vx -= 1.5 * dot * nDistX;
+        ball.vy -= 1.5 * dot * nDistY;
+      }
+    }
+  });
+}
+
+function update() {
+  if (state === 'start' || state === 'gameover') return;
+
+  // Combo timer
+  if (comboTimer > 0) {
+    comboTimer--;
+    if (comboTimer === 0) combo = 0;
+  }
+
+  // Ball save
+  if (ballSaveActive) {
+    ballSaveTimer--;
+    if (ballSaveTimer <= 0) ballSaveActive = false;
+  }
+
+  updateUI();
+
+  // Launching
+  if (state === 'launching') {
+    if (launching) {
+      launchPower = Math.min(launchPower + 2, 100);
+    }
+    if (ball.active) {
+      state = 'playing';
+    }
+    return;
+  }
+
+  if (state !== 'playing') return;
+  if (!ball.active) return;
+
+  // Gravity
+  ball.vy += GRAVITY;
+
+  // Damping
+  ball.vx *= DAMPING;
+  ball.vy *= DAMPING;
+
+  // Speed limit
+  const speed = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  if (speed > 15) {
+    ball.vx *= 15 / speed;
+    ball.vy *= 15 / speed;
+  }
+
+  // Move
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  // Wall collisions
+  walls.forEach(w => reflectWall(ball, w));
+
+  // Table boundary
+  if (ball.x < 20 + BALL_RADIUS) { ball.x = 20 + BALL_RADIUS; ball.vx = Math.abs(ball.vx) * 0.8; }
+  if (ball.x > 395 - BALL_RADIUS) { ball.x = 395 - BALL_RADIUS; ball.vx = -Math.abs(ball.vx) * 0.8; }
+  if (ball.y < 50 + BALL_RADIUS) { ball.y = 50 + BALL_RADIUS; ball.vy = Math.abs(ball.vy) * 0.8; }
+
+  // Drain
+  if (ball.y > H + 20) {
+    if (ballSaveActive) {
+      resetBall();
+      ballSaveActive = false;
+      return;
+    }
+    SFX.drain();
+    lives--;
+    multiplier = 1;
+    combo = 0;
+    updateUI();
+    if (lives <= 0) {
+      state = 'gameover';
+      document.getElementById('startScreen').innerHTML = '<h1 style="color:#f00">GAME OVER</h1><p>최종 점수: ' + score.toLocaleString() + '</p><p>SPACE 로 재시작</p>';
+      document.getElementById('startScreen').style.pointerEvents = 'auto';
+    } else {
+      resetBall();
+    }
+    return;
+  }
+
+  // Bumper collisions
+  bumpers.forEach(b => {
+    if (circleReflect(ball, b.x, b.y, b.r)) {
+      b.glow = 15;
+      addScore(b.score);
+      SFX.bumper();
+      // Extra bounce
+      ball.vy -= 2;
+    }
+    if (b.glow > 0) b.glow--;
+  });
+
+  // Post collisions
+  posts.forEach(p => {
+    circleReflect(ball, p.x, p.y, p.r);
+  });
+
+  // Target collisions
+  targets.forEach(t => {
+    if (ball.x + BALL_RADIUS > t.x && ball.x - BALL_RADIUS < t.x + t.w &&
+        ball.y + BALL_RADIUS > t.y && ball.y - BALL_RADIUS < t.y + t.h) {
+      if (!t.lit) {
+        t.lit = true;
+        addScore(t.score);
+        SFX.target();
+        // Check if all targets lit
+        if (targets.every(tt => tt.lit)) {
+          addScore(5000);
+          SFX.bonus();
+          targets.forEach(tt => tt.lit = false);
+          ballSaveActive = true;
+          ballSaveTimer = 300;
+        }
+      }
+      ball.vy = -Math.abs(ball.vy) * 0.9;
+    }
+  });
+
+  // Slingshot collisions
+  slingshots.forEach(s => {
+    const dx = s.x2 - s.x1;
+    const dy = s.y2 - s.y1;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    const nx = -dy / len;
+    const ny = dx / len;
+    const bx = ball.x - s.x1;
+    const by = ball.y - s.y1;
+    const dist = bx * nx + by * ny;
+    if (Math.abs(dist) < BALL_RADIUS + 3) {
+      ball.vx += nx * 4;
+      ball.vy += ny * 4;
+      addScore(50);
+      s.glow = 10;
+      SFX.sling();
+    }
+    if (s.glow > 0) s.glow--;
+  });
+
+  // Lane detection
+  lanes.forEach(l => {
+    const dx = l.x2 - l.x1;
+    const dy = l.y2 - l.y1;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    const nx = -dy / len;
+    const ny = dx / len;
+    const bx = ball.x - l.x1;
+    const by = ball.y - l.y1;
+    const dist = bx * nx + by * ny;
+    const proj = (bx * dx + by * dy) / (len * len);
+    if (Math.abs(dist) < BALL_RADIUS + 3 && proj > 0 && proj < 1) {
+      l.glow = 20;
+      addScore(100);
+    }
+    if (l.glow > 0) l.glow--;
+  });
+
+  // Tilt
+  if (keys['KeyT'] && !isTilted) {
+    tiltWarnings++;
+    if (tiltWarnings >= 3) {
+      isTilted = true;
+    }
+  }
+}
+
+function drawNeonLine(x1, y1, x2, y2, color, width = 2) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function drawNeonCircle(x, y, r, color, fill = false) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 15;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  if (fill) {
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.3;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function drawFlipper(f) {
+  const ex = f.x + Math.cos(f.angle) * FLIPPER_LEN;
+  const ey = f.y + Math.sin(f.angle) * FLIPPER_LEN;
+  ctx.strokeStyle = f.active ? '#0ff' : '#888';
+  ctx.lineWidth = FLIPPER_W;
+  ctx.shadowColor = f.active ? '#0ff' : '#444';
+  ctx.shadowBlur = f.active ? 15 : 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(f.x, f.y);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function draw() {
+  // Background
+  ctx.fillStyle = '#0a0a1a';
+  ctx.fillRect(0, 0, W, H);
+
+  // Table surface pattern
+  ctx.fillStyle = '#0d0d25';
+  for (let y = 50; y < 660; y += 20) {
+    for (let x = 20; x < 355; x += 20) {
+      ctx.fillRect(x + 9, y + 9, 2, 2);
+    }
+  }
+
+  // Walls
+  walls.forEach(w => drawNeonLine(w.x1, w.y1, w.x2, w.y2, '#335'));
+
+  // Bumpers
+  bumpers.forEach(b => {
+    const alpha = 0.3 + b.glow / 15 * 0.7;
+    const colors = ['#f00', '#ff0', '#0f0', '#f0f'];
+    const ci = bumpers.indexOf(b) % colors.length;
+    const color = colors[ci];
+
+    // Glow ring
+    if (b.glow > 0) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r + 10, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = b.glow / 15 * 0.3;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    drawNeonCircle(b.x, b.y, b.r, color, true);
+
+    // Score text
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(b.score, b.x, b.y + 4);
+  });
+
+  // Targets
+  targets.forEach(t => {
+    ctx.fillStyle = t.lit ? t.color : '#333';
+    ctx.shadowColor = t.lit ? t.color : 'transparent';
+    ctx.shadowBlur = t.lit ? 10 : 0;
+    ctx.fillRect(t.x, t.y, t.w, t.h);
+    if (t.lit) {
+      ctx.strokeStyle = t.color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(t.x - 1, t.y - 1, t.w + 2, t.h + 2);
+    }
+    ctx.shadowBlur = 0;
+  });
+
+  // Slingshots
+  slingshots.forEach(s => {
+    const color = s.glow > 0 ? '#ff0' : '#663';
+    drawNeonLine(s.x1, s.y1, s.x2, s.y2, color, s.glow > 0 ? 4 : 2);
+  });
+
+  // Posts
+  posts.forEach(p => {
+    drawNeonCircle(p.x, p.y, p.r, '#448', true);
+  });
+
+  // Lanes
+  lanes.forEach(l => {
+    const color = l.glow > 0 ? '#0ff' : '#224';
+    drawNeonLine(l.x1, l.y1, l.x2, l.y2, color, l.glow > 0 ? 4 : 2);
+    if (l.glow > 0) {
+      ctx.beginPath();
+      ctx.arc(l.x1, l.y1, 5, 0, Math.PI * 2);
+      ctx.arc(l.x2, l.y2, 5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = l.glow / 20;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  });
+
+  // Flippers
+  drawFlipper(leftFlipper);
+  drawFlipper(rightFlipper);
+
+  // Ball
+  if (ball.active || state === 'launching') {
+    const ballX = state === 'launching' ? 380 : ball.x;
+    const ballY = state === 'launching' ? 580 : ball.y;
+
+    // Trail
+    if (state === 'playing') {
+      ctx.beginPath();
+      ctx.arc(ball.x - ball.vx * 0.5, ball.y - ball.vy * 0.5, BALL_RADIUS * 0.7, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fill();
+    }
+
+    // Ball
+    const gradient = ctx.createRadialGradient(ballX - 2, ballY - 2, 0, ballX, ballY, BALL_RADIUS);
+    gradient.addColorStop(0, '#fff');
+    gradient.addColorStop(0.5, '#ccc');
+    gradient.addColorStop(1, '#888');
+    ctx.fillStyle = gradient;
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(ballX, ballY, BALL_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // Launch spring
+  if (state === 'launching') {
+    const springY = 650 - launchPower * 0.4;
+    ctx.strokeStyle = '#f80';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#f80';
+    ctx.shadowBlur = 10;
+    for (let i = 0; i < 8; i++) {
+      const sy = 650 - (650 - springY) * i / 8;
+      ctx.beginPath();
+      ctx.moveTo(370, sy);
+      ctx.lineTo(390, sy);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // Power meter
+    ctx.fillStyle = '#333';
+    ctx.fillRect(385, 500, 10, 150);
+    const meterH = launchPower * 1.5;
+    const meterGrad = ctx.createLinearGradient(0, 650 - meterH, 0, 650);
+    meterGrad.addColorStop(0, '#0f0');
+    meterGrad.addColorStop(0.5, '#ff0');
+    meterGrad.addColorStop(1, '#f00');
+    ctx.fillStyle = meterGrad;
+    ctx.fillRect(385, 650 - meterH, 10, meterH);
+  }
+
+  // Ball save indicator
+  if (ballSaveActive) {
+    ctx.fillStyle = '#0f0';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.5;
+    ctx.fillText('BALL SAVE', W / 2, 70);
+    ctx.globalAlpha = 1;
+  }
+}
+
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  ensureAudio();
+
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (state === 'start' || state === 'gameover') {
+      document.getElementById('startScreen').style.display = 'none';
+      startGame();
+    } else if (state === 'launching') {
+      launching = true;
+    }
+  }
+
+  if (e.code === 'KeyZ' || e.code === 'ArrowLeft') {
+    if (!ball.active && state === 'launching') return;
+  }
+});
+
+document.addEventListener('keyup', e => {
+  keys[e.code] = false;
+
+  if (e.code === 'Space' && state === 'launching' && launching) {
+    launching = false;
+    ball.active = true;
+    ball.vy = -(launchPower * 0.15 + 5);
+    ball.vx = -0.5;
+    SFX.launch();
+    launchPower = 0;
+  }
+});
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+</body>
+</html>
