@@ -3,37 +3,664 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>게임 8</title>
+<title>Bomberman - day4_8</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#1a1a2e; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:Arial,sans-serif; color:#fff; }
-h1 { margin-bottom:10px; font-size:1.5rem; color:#e94560; }
-canvas { border:2px solid #333; border-radius:8px; max-width:100%; }
-p { margin-top:10px; color:#aaa; font-size:0.9rem; }
+body { background:#0a0a12; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:'Courier New',monospace; color:#fff; overflow:hidden; }
+#wrapper { position:relative; }
+h1 { font-size:1.2rem; color:#ff0; letter-spacing:4px; text-shadow:0 0 10px #f80; margin-bottom:8px; }
+canvas { border:3px solid #333; border-radius:4px; image-rendering:pixelated; box-shadow:0 0 30px rgba(255,136,0,0.3); }
+#info { display:flex; gap:30px; margin-top:10px; font-size:0.8rem; }
+#info span { color:#aaa; }
+#info .val { color:#0f0; }
+#overlay { position:absolute; top:0; left:0; width:100%; height:100%; display:none; flex-direction:column; align-items:center; justify-content:center; z-index:10; pointer-events:none; }
+#overlay.show { display:flex; }
+#overlay h2 { font-size:2rem; text-shadow:0 0 20px #f00; margin-bottom:10px; }
+#overlay p { font-size:0.9rem; color:#aaa; }
 </style>
 </head>
 <body>
-<h1>게임 8</h1>
-<canvas id="game" width="400" height="400"></canvas>
-<p>← ↑ → ↓ / SPACE</p>
+<h1>⚡ BOMBERMAN ⚡</h1>
+<div id="wrapper">
+  <canvas id="g" width="520" height="520"></canvas>
+  <div id="overlay"><h2 id="ot"></h2><p id="os"></p></div>
+</div>
+<div id="info">
+  <span>LEVEL <span class="val" id="lvl">1</span></span>
+  <span>P1 <span class="val" id="p1">♥♥♥</span></span>
+  <span>P2 <span class="val" id="p2">♥♥♥</span></span>
+  <span>ENEMIES <span class="val" id="ec">0</span></span>
+</div>
 <script>
-const c=document.getElementById('game'),ctx=c.getContext('2d');
-const W=400,H=400;
-let x=W/2,y=H/2,vx=2,vy=2,r=15;
-function update(){
-  x+=vx;y+=vy;
-  if(x+r>W||x-r<0)vx=-vx;
-  if(y+r>H||y-r<0)vy=-vy;
+const C = document.getElementById('g'), X = C.getContext('2d');
+const COLS = 13, ROWS = 13, T = 40; // tile size
+const W = COLS*T, H = ROWS*T;
+const DIR = {UP:0,DOWN:1,LEFT:2,RIGHT:3};
+const dx = [0,0,-1,1], dy = [-1,1,0,0];
+let game = null, frame = 0, anim = 0;
+
+// ---------- AUDIO ----------
+const AC = new (window.AudioContext||window.webkitAudioContext)();
+function beep(freq, dur, vol=.08) {
+  try {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type = 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, AC.currentTime+dur);
+    o.start(); o.stop(AC.currentTime+dur);
+  } catch(e){}
 }
-function draw(){
-  ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,W,H);
-  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
-  ctx.fillStyle='#e94560';ctx.fill();
-  ctx.strokeStyle='#ff6b6b';ctx.lineWidth=2;ctx.stroke();
-  ctx.fillStyle='#fff';ctx.font='14px Arial';ctx.textAlign='center';
-  ctx.fillText('바운스 게임',W/2,30);
+function sndBomb() { beep(180, .3); }
+function sndExplode() { beep(80, .4, .12); }
+function sndPowerup() { beep(600, .1); setTimeout(()=>beep(900,.1),100); }
+function sndDeath() { beep(200,.2); setTimeout(()=>beep(150,.3),200); }
+function sndLevel() { beep(400,.1); setTimeout(()=>beep(500,.1),120); setTimeout(()=>beep(600,.15),240); }
+
+// ---------- TILES ----------
+const TILE = {EMPTY:0, WALL:1, SOFT:2, BOMB:3, EXPLOSION:4, POWERUP:5};
+const PU = {BOMB:0, FLAME:1, SPEED:2, KICK:3};
+
+// ---------- GAME STATE ----------
+class Game {
+  constructor() {
+    this.level = 1;
+    this.grid = [];
+    this.players = [];
+    this.enemies = [];
+    this.bombs = [];
+    this.explosions = [];
+    this.powerups = [];
+    this.particles = [];
+    this.gameOver = false;
+    this.levelComplete = false;
+    this.state = 'playing'; // playing, dying, levelComplete, gameOver
+    this.stateTimer = 0;
+    this.initLevel();
+  }
+  initLevel() {
+    this.bombs = [];
+    this.explosions = [];
+    this.powerups = [];
+    this.particles = [];
+    this.state = 'playing';
+    this.stateTimer = 0;
+    this.gameOver = false;
+    this.levelComplete = false;
+    this.buildMap();
+    this.spawnPlayers();
+    this.spawnEnemies();
+    document.getElementById('overlay').classList.remove('show');
+  }
+  buildMap() {
+    const g = Array(ROWS).fill(0).map(()=>Array(COLS).fill(TILE.EMPTY));
+    // Indestructible walls on borders and even positions
+    for (let y=0; y<ROWS; y++) for (let x=0; x<COLS; x++)
+      if (y===0||y===ROWS-1||x===0||x===COLS-1||(x%2===0&&y%2===0))
+        g[y][x] = TILE.WALL;
+    // Soft blocks - density increases with level
+    const density = Math.min(0.35 + this.level * 0.02, 0.55);
+    for (let y=2; y<ROWS-2; y+=2) for (let x=2; x<COLS-2; x+=2) {
+      if (g[y][x]===TILE.EMPTY && Math.random() < density) g[y][x] = TILE.SOFT;
+    }
+    // Extra soft blocks in odd rows/cols
+    for (let y=1; y<ROWS-1; y++) for (let x=1; x<COLS-1; x++) {
+      if (g[y][x]!==TILE.EMPTY) continue;
+      if ((y%2===1||x%2===1) && Math.random() < density*0.7) g[y][x] = TILE.SOFT;
+    }
+    // Ensure spawn areas (top-left for P1, top-right for P2) are clear
+    for (let y=1; y<=2; y++) for (let x=1; x<=2; x++) g[y][x]=TILE.EMPTY;
+    for (let y=1; y<=2; y++) for (let x=COLS-3; x<=COLS-2; x++) g[y][x]=TILE.EMPTY;
+    this.grid = g;
+  }
+  spawnPlayers() {
+    this.players = [];
+    this.players.push(new Player(1, 1.5*T, 1.5*T, 1)); // P1
+    this.players.push(new Player(COLS-3, 1.5*T, 1.5*T, 2)); // P2
+  }
+  spawnEnemies() {
+    this.enemies = [];
+    const count = Math.min(2 + this.level, 8);
+    const types = ['random','chaser','clever'];
+    for (let i=0; i<count; i++) {
+      let x,y,attempts=0;
+      do {
+        x = 1+Math.floor(Math.random()*(COLS-2));
+        y = 1+Math.floor(Math.random()*(ROWS-2));
+        attempts++;
+      } while ((this.grid[y][x]!==TILE.EMPTY || this.isNearSpawn(x,y)) && attempts<50);
+      const type = types[i%3];
+      this.enemies.push(new Enemy(x*T+T/2, y*T+T/2, type));
+    }
+    document.getElementById('ec').textContent = count;
+  }
+  isNearSpawn(x,y) {
+    return (x<=3&&y<=3) || (x>=COLS-4&&y<=3);
+  }
+  update() {
+    if (this.state==='dying') {
+      this.stateTimer++;
+      for (const p of this.players) p.update(this);
+      for (const e of this.enemies) e.update(this);
+      this.updateBombs();
+      this.updateExplosions();
+      this.updateParticles();
+      if (this.stateTimer > 90) {
+        if (this.players.filter(p=>p.alive).length===0) {
+          this.state = 'gameOver';
+          this.showOverlay('GAME OVER', 'Press R to restart');
+        } else {
+          this.state = 'playing';
+          this.stateTimer = 0;
+        }
+      }
+      return;
+    }
+    if (this.state==='levelComplete' || this.state==='gameOver') {
+      this.stateTimer++;
+      this.updateParticles();
+      return;
+    }
+    for (const p of this.players) p.update(this);
+    for (const e of this.enemies) e.update(this);
+    this.updateBombs();
+    this.updateExplosions();
+    this.updateParticles();
+    this.checkPlayerEnemyCollisions();
+    this.checkLevelComplete();
+  }
+  updateBombs() {
+    for (let i=this.bombs.length-1; i>=0; i--) {
+      const b = this.bombs[i];
+      b.timer--;
+      if (b.timer <= 0) { this.explodeBomb(b); this.bombs.splice(i,1); }
+    }
+  }
+  explodeBomb(b) {
+    sndExplode();
+    const cx = Math.round(b.x/T), cy = Math.round(b.y/T);
+    const range = b.range;
+    const dirs = [[0,0],[1,0],[-1,0],[0,1],[0,-1]];
+    const cells = new Set();
+    for (const [ddx,ddy] of dirs) {
+      for (let r=0; r<=range; r++) {
+        const nx = cx + ddx*r, ny = cy + ddy*r;
+        if (nx<0||nx>=COLS||ny<0||ny>=ROWS) break;
+        if (this.grid[ny][nx]===TILE.WALL) break;
+        cells.add(nx+','+ny);
+        if (this.grid[ny][nx]===TILE.SOFT) {
+          this.destroySoft(nx, ny);
+          break;
+        }
+      }
+    }
+    // Create explosion sprites
+    for (const c of cells) {
+      const [ex, ey] = c.split(',').map(Number);
+      this.explosions.push({x:ex*T+T/2, y:ey*T+T/2, timer:12});
+      // Check for chain bombs
+      for (let bi=this.bombs.length-1; bi>=0; bi--) {
+        const ob = this.bombs[bi];
+        if (Math.round(ob.x/T)===ex && Math.round(ob.y/T)===ey && ob!==b) {
+          this.explodeBomb(ob); this.bombs.splice(bi,1);
+        }
+      }
+    }
+    // Damage players
+    for (const p of this.players) if (p.alive) {
+      const px = Math.round(p.x/T), py = Math.round(p.y/T);
+      if (cells.has(px+','+py)) { p.die(); sndDeath(); }
+    }
+    // Damage enemies
+    for (let ei=this.enemies.length-1; ei>=0; ei--) {
+      const e = this.enemies[ei];
+      const ex = Math.round(e.x/T), ey = Math.round(e.y/T);
+      if (cells.has(ex+','+ey)) {
+        e.alive = false;
+        this.spawnParticles(e.x, e.y, '#f80', 15);
+        this.enemies.splice(ei,1);
+      }
+    }
+    // Particles
+    this.spawnParticles(b.x, b.y, '#f60', 8);
+    // Remove soft blocks from grid where explosion hit
+  }
+  destroySoft(gx, gy) {
+    this.grid[gy][gx] = TILE.EMPTY;
+    this.spawnParticles(gx*T+T/2, gy*T+T/2, '#a80', 6);
+    // Power-up drop chance
+    if (Math.random() < 0.25) {
+      const types = [PU.BOMB, PU.FLAME, PU.SPEED, PU.KICK];
+      const t = types[Math.floor(Math.random()*types.length)];
+      this.powerups.push({x:gx*T+T/2, y:gy*T+T/2, type:t, timer:600});
+    }
+  }
+  updateExplosions() {
+    for (let i=this.explosions.length-1; i>=0; i--) {
+      this.explosions[i].timer--;
+      if (this.explosions[i].timer <= 0) this.explosions.splice(i,1);
+    }
+  }
+  updateParticles() {
+    for (let i=this.particles.length-1; i>=0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx; p.y += p.vy; p.vy += 0.2;
+      p.life--;
+      if (p.life <= 0) this.particles.splice(i,1);
+    }
+  }
+  spawnParticles(x, y, color, count) {
+    for (let i=0; i<count; i++)
+      this.particles.push({x,y,color,vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4-2,life:20+Math.random()*15});
+  }
+  checkPlayerEnemyCollisions() {
+    for (const p of this.players) if (p.alive) {
+      for (const e of this.enemies) if (e.alive) {
+        if (Math.abs(p.x-e.x) < T-4 && Math.abs(p.y-e.y) < T-4) {
+          p.die(); sndDeath();
+        }
+      }
+    }
+  }
+  checkLevelComplete() {
+    if (this.enemies.length===0 && !this.gameOver && this.state==='playing') {
+      this.state = 'levelComplete';
+      this.stateTimer = 0;
+      sndLevel();
+      this.showOverlay(`LEVEL ${this.level} CLEAR!`, 'Press Enter for next level');
+    }
+  }
+  showOverlay(title, sub) {
+    const ov = document.getElementById('overlay');
+    document.getElementById('ot').textContent = title;
+    document.getElementById('os').textContent = sub;
+    ov.classList.add('show');
+  }
+  nextLevel() {
+    if (this.state==='levelComplete') {
+      this.level++;
+      document.getElementById('lvl').textContent = this.level;
+      this.initLevel();
+    }
+  }
+  restart() {
+    this.level = 1;
+    document.getElementById('lvl').textContent = 1;
+    this.initLevel();
+  }
+  draw() {
+    X.fillStyle = '#1a1a2e';
+    X.fillRect(0,0,W,H);
+    // Grid
+    for (let y=0; y<ROWS; y++) for (let x=0; x<COLS; x++) {
+      const t = this.grid[y][x];
+      if (t===TILE.WALL) {
+        X.fillStyle = '#444';
+        X.fillRect(x*T+1,y*T+1,T-2,T-2);
+        X.fillStyle = '#555';
+        X.fillRect(x*T+3,y*T+3,T-6,T-6);
+        X.fillStyle = '#666';
+        X.fillRect(x*T+5,y*T+5,T-10,T-10);
+      } else if (t===TILE.SOFT) {
+        X.fillStyle = '#a06030';
+        X.fillRect(x*T+1,y*T+1,T-2,T-2);
+        X.fillStyle = '#b07040';
+        X.fillRect(x*T+3,y*T+3,T-6,T-6);
+        X.strokeStyle = '#805020';
+        X.lineWidth = 1;
+        X.strokeRect(x*T+5,y*T+5,T-10,T-10);
+      }
+    }
+    // Powerups
+    for (const pu of this.powerups) {
+      const s = 12;
+      X.fillStyle = '#ff0';
+      X.fillRect(pu.x-s/2, pu.y-s/2, s, s);
+      X.fillStyle = '#000';
+      X.font = 'bold 10px monospace';
+      X.textAlign = 'center'; X.textBaseline = 'middle';
+      const l = ['B','F','S','K'][pu.type];
+      X.fillText(l, pu.x, pu.y+1);
+    }
+    // Bombs
+    for (const b of this.bombs) {
+      const pulse = 1 + Math.sin(b.timer*0.15)*0.05;
+      const s = T*0.5*pulse;
+      X.fillStyle = '#222';
+      X.beginPath(); X.arc(b.x, b.y, s, 0, Math.PI*2); X.fill();
+      X.fillStyle = '#f80';
+      X.beginPath(); X.arc(b.x-2, b.y-2, s*0.7, 0, Math.PI*2); X.fill();
+      X.fillStyle = '#ff0';
+      const wick = b.timer % 20 < 10 ? 3 : 1;
+      X.fillRect(b.x-1, b.y-s-4, 2, wick+4);
+    }
+    // Explosions
+    for (const ex of this.explosions) {
+      const t = ex.timer / 12;
+      const r = T * 0.8 * t;
+      X.fillStyle = `rgba(255,${Math.floor(100+155*t)},0,${t*0.9})`;
+      X.fillRect(ex.x-r/2, ex.y-r/2, r, r);
+      X.fillStyle = `rgba(255,255,200,${t*0.5})`;
+      X.fillRect(ex.x-r/4, ex.y-r/4, r/2, r/2);
+    }
+    // Enemies
+    for (const e of this.enemies) if (e.alive) e.draw(X);
+    // Players
+    for (const p of this.players) if (p.alive) p.draw(X);
+    // Particles
+    for (const p of this.particles) {
+      X.globalAlpha = p.life/35;
+      X.fillStyle = p.color;
+      X.fillRect(p.x-2, p.y-2, 4, 4);
+    }
+    X.globalAlpha = 1;
+  }
+  getTile(gx, gy) {
+    if (gx<0||gx>=COLS||gy<0||gy>=ROWS) return TILE.WALL;
+    return this.grid[gy][gx];
+  }
+  isSolid(gx, gy) {
+    const t = this.getTile(gx, gy);
+    return t===TILE.WALL || t===TILE.SOFT;
+  }
+  pickupPowerup(p) {
+    for (let i=this.powerups.length-1; i>=0; i--) {
+      const pu = this.powerups[i];
+      if (Math.abs(p.x-pu.x) < T/2 && Math.abs(p.y-pu.y) < T/2) {
+        sndPowerup();
+        switch (pu.type) {
+          case PU.BOMB: p.maxBombs++; break;
+          case PU.FLAME: p.bombRange++; break;
+          case PU.SPEED: p.speed = Math.min(p.speed+0.3, 4); break;
+          case PU.KICK: p.kick = true; break;
+        }
+        this.powerups.splice(i,1);
+      }
+    }
+  }
 }
-function loop(){update();draw();requestAnimationFrame(loop);}
+
+// ---------- PLAYER ----------
+class Player {
+  constructor(gx, gy, id) {
+    this.x = gx; this.y = gy;
+    this.id = id;
+    this.alive = true;
+    this.speed = 2;
+    this.maxBombs = 1;
+    this.bombRange = 2;
+    this.kick = false;
+    this.lives = 3;
+    this.bombCount = 0;
+    this.dir = DIR.DOWN;
+    this.moveTimer = 0;
+    this.moveX = 0; this.moveY = 0;
+    this.dying = false; this.deathTimer = 0;
+  }
+  getControls() {
+    if (this.id===1) return {up:'KeyW',down:'KeyS',left:'KeyA',right:'KeyD',bomb:'Space'};
+    return {up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',bomb:'Enter'};
+  }
+  update(game) {
+    if (!this.alive) return;
+    if (this.dying) {
+      this.deathTimer++;
+      if (this.deathTimer > 60) {
+        this.lives--;
+        if (this.lives > 0) {
+          this.dying = false; this.deathTimer = 0;
+          this.x = this.id===1 ? 1.5*T : (COLS-3)*T;
+          this.y = 1.5*T;
+          game.state = this.lives > 0 ? 'playing' : 'dying';
+        } else {
+          this.alive = false;
+        }
+      }
+      return;
+    }
+    const c = this.getControls();
+    let kx=0, ky=0;
+    if (keys[c.up]) ky=-1; if (keys[c.down]) ky=1;
+    if (keys[c.left]) kx=-1; if (keys[c.right]) kx=1;
+    if (kx!==0||ky!==0) {
+      if (kx!==0) ky=0; // prefer horizontal
+      if (kx===1) this.dir=DIR.RIGHT; else if (kx===-1) this.dir=DIR.LEFT;
+      if (ky===1) this.dir=DIR.DOWN; else if (ky===-1) this.dir=DIR.UP;
+      this.moveX = kx; this.moveY = ky;
+    } else {
+      this.moveX = 0; this.moveY = 0;
+    }
+    // Movement with collision
+    const spd = this.speed;
+    if (this.moveX!==0) {
+      const nx = this.x + this.moveX*spd;
+      const gx = Math.floor((nx+this.moveX*T/2)/T);
+      const gy = Math.floor((this.y)/T);
+      const canPass = !game.isSolid(gx, gy) && !this.bombBlocked(game, gx, gy);
+      // Check both tiles player occupies
+      const gy2 = Math.floor((this.y+T-1)/T);
+      const canPass2 = !game.isSolid(gx, gy2) && !this.bombBlocked(game, gx, gy2);
+      if (canPass && canPass2) this.x = nx;
+      else this.x = Math.round(this.x/T)*T+T/2;
+    }
+    if (this.moveY!==0) {
+      const ny = this.y + this.moveY*spd;
+      const gx = Math.floor((this.x)/T);
+      const gy = Math.floor((ny+this.moveY*T/2)/T);
+      const canPass = !game.isSolid(gx, gy) && !this.bombBlocked(game, gx, gy);
+      const gx2 = Math.floor((this.x+T-1)/T);
+      const canPass2 = !game.isSolid(gx2, gy) && !this.bombBlocked(game, gx2, gy);
+      if (canPass && canPass2) this.y = ny;
+      else this.y = Math.round(this.y/T)*T+T/2;
+    }
+    // Drop bomb
+    if (keys[c.bomb] && !this.bombPressed) {
+      this.bombPressed = true;
+      if (this.bombCount < this.maxBombs) this.dropBomb(game);
+    }
+    if (!keys[c.bomb]) this.bombPressed = false;
+    // Pickup
+    game.pickupPowerup(this);
+    // Kick bombs
+    if (this.kick) this.kickBomb(game);
+  }
+  bombBlocked(game, gx, gy) {
+    for (const b of game.bombs) {
+      if (Math.round(b.x/T)===gx && Math.round(b.y/T)===gy) return true;
+    }
+    return false;
+  }
+  dropBomb(game) {
+    const bx = Math.round(this.x/T)*T + T/2;
+    const by = Math.round(this.y/T)*T + T/2;
+    // Check if bomb already there
+    for (const b of game.bombs) if (b.x===bx&&b.y===by) return;
+    game.bombs.push({x:bx, y:by, timer:120, range:this.bombRange, player:this});
+    this.bombCount++;
+    sndBomb();
+  }
+  kickBomb(game) {
+    if (this.moveX===0&&this.moveY===0) return;
+    for (const b of game.bombs) {
+      if (Math.abs(b.x-this.x)<T-2 && Math.abs(b.y-this.y)<T-2) {
+        const kx = this.moveX, ky = this.moveY;
+        const nx = Math.round(b.x/T) + kx, ny = Math.round(b.y/T) + ky;
+        if (!game.isSolid(nx, ny) && !this.bombBlocked(game, nx, ny)) {
+          b.x = nx*T+T/2; b.y = ny*T+T/2;
+        }
+      }
+    }
+  }
+  die() {
+    if (this.dying) return;
+    this.dying = true;
+    this.deathTimer = 0;
+  }
+  draw(ctx) {
+    if (!this.alive) return;
+    if (this.dying) {
+      const flash = Math.floor(this.deathTimer/4)%2===0;
+      if (!flash) return;
+    }
+    const px = this.x, py = this.y;
+    ctx.fillStyle = this.id===1 ? '#2af' : '#f44';
+    // Body
+    ctx.fillRect(px-12, py-12, 24, 24);
+    ctx.fillStyle = this.id===1 ? '#6cf' : '#f88';
+    ctx.fillRect(px-8, py-8, 16, 16);
+    // Face
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(px-5, py-4, 3, 3);
+    ctx.fillRect(px+2, py-4, 3, 3);
+    // Direction indicator
+    ctx.fillStyle = '#fff';
+    const d = this.dir;
+    if (d===DIR.UP) ctx.fillRect(px-2, py-14, 4, 4);
+    else if (d===DIR.DOWN) ctx.fillRect(px-2, py+10, 4, 4);
+    else if (d===DIR.LEFT) ctx.fillRect(px-14, py-2, 4, 4);
+    else if (d===DIR.RIGHT) ctx.fillRect(px+10, py-2, 4, 4);
+    // Lives indicator
+    ctx.fillStyle = '#fff';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('P'+this.id, px, py+22);
+  }
+}
+
+// ---------- ENEMY AI ----------
+class Enemy {
+  constructor(x, y, type) {
+    this.x = x; this.y = y;
+    this.type = type;
+    this.alive = true;
+    this.speed = type==='clever' ? 1.2 : type==='chaser' ? 1.0 : 0.7;
+    this.dir = Math.floor(Math.random()*4);
+    this.moveTimer = 0;
+    this.changeTimer = Math.floor(30+Math.random()*60);
+    this.targetX = 0; this.targetY = 0;
+    this.facing = 0;
+  }
+  update(game) {
+    if (!this.alive) return;
+    this.moveTimer++;
+    const gx = Math.round(this.x/T), gy = Math.round(this.y/T);
+    if (this.type==='random') {
+      if (this.moveTimer > this.changeTimer) {
+        this.dir = Math.floor(Math.random()*4);
+        this.changeTimer = 30+Math.floor(Math.random()*60);
+        this.moveTimer = 0;
+      }
+      this.moveDir(game);
+    } else if (this.type==='chaser') {
+      // Chase nearest player
+      let nearest = null, minD = Infinity;
+      for (const p of game.players) if (p.alive && !p.dying) {
+        const d = Math.hypot(p.x-this.x, p.y-this.y);
+        if (d < minD) { minD = d; nearest = p; }
+      }
+      if (nearest && this.moveTimer > 20) {
+        const mx = nearest.x - this.x, my = nearest.y - this.y;
+        if (Math.abs(mx) > Math.abs(my)) this.dir = mx>0?DIR.RIGHT:DIR.LEFT;
+        else this.dir = my>0?DIR.DOWN:DIR.UP;
+        this.moveTimer = 0;
+      }
+      this.moveDir(game);
+    } else if (this.type==='clever') {
+      // Try to path toward player but avoid bombs
+      let nearest = null, minD = Infinity;
+      for (const p of game.players) if (p.alive && !p.dying) {
+        const d = Math.hypot(p.x-this.x, p.y-this.y);
+        if (d < minD) { minD = d; nearest = p; }
+      }
+      if (this.moveTimer > 15) {
+        if (nearest) {
+          const mx = nearest.x - this.x, my = nearest.y - this.y;
+          const cx = Math.round(this.x/T), cy = Math.round(this.y/T);
+          // Try directions, prefer toward player
+          const dirs = [];
+          if (Math.abs(mx) > Math.abs(my)) {
+            dirs.push(mx>0?DIR.RIGHT:DIR.LEFT, my>0?DIR.DOWN:DIR.UP, my>0?DIR.UP:DIR.DOWN);
+          } else {
+            dirs.push(my>0?DIR.DOWN:DIR.UP, mx>0?DIR.RIGHT:DIR.LEFT, mx>0?DIR.LEFT:DIR.RIGHT);
+          }
+          for (const d of dirs) {
+            const nx = cx + dx[d], ny = cy + dy[d];
+            if (!game.isSolid(nx, ny) && !this.nearBomb(game, nx, ny, 2)) {
+              this.dir = d; break;
+            }
+          }
+        }
+        this.moveTimer = 0;
+      }
+      this.moveDir(game);
+    }
+  }
+  nearBomb(game, gx, gy, range) {
+    for (const b of game.bombs) {
+      const bx = Math.round(b.x/T), by = Math.round(b.y/T);
+      if (Math.abs(bx-gx)<=range && Math.abs(by-gy)<=range) return true;
+    }
+    return false;
+  }
+  moveDir(game) {
+    const spd = this.speed;
+    const gx = Math.round(this.x/T), gy = Math.round(this.y/T);
+    const nx = gx + dx[this.dir], ny = gy + dy[this.dir];
+    const targetX = nx*T+T/2, targetY = ny*T+T/2;
+    if (!game.isSolid(nx, ny)) {
+      const ex = Math.abs(this.x - targetX) < spd;
+      const ey = Math.abs(this.y - targetY) < spd;
+      if (ex && ey) { this.x = targetX; this.y = targetY; }
+      else {
+        if (dx[this.dir]!==0) this.x += dx[this.dir]*spd;
+        if (dy[this.dir]!==0) this.y += dy[this.dir]*spd;
+      }
+    } else {
+      if (this.type==='random') this.dir = Math.floor(Math.random()*4);
+    }
+    this.facing = this.dir;
+  }
+  draw(ctx) {
+    if (!this.alive) return;
+    const px=this.x, py=this.y;
+    const colors = {random:'#a0f', chaser:'#f60', clever:'#0f8'};
+    const col = colors[this.type]||'#a0f';
+    ctx.fillStyle = col;
+    ctx.fillRect(px-10, py-10, 20, 20);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(px-6, py-6, 5, 5);
+    ctx.fillRect(px+1, py-6, 5, 5);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(px-4, py-5, 3, 3);
+    ctx.fillRect(px+2, py-5, 3, 3);
+    // Type indicator
+    ctx.fillStyle = '#fff';
+    ctx.font = '6px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.type[0].toUpperCase(), px, py+14);
+  }
+}
+
+// ---------- INPUT ----------
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code==='Enter' && game && game.state==='levelComplete') game.nextLevel();
+  if (e.code==='KeyR' && game && game.state==='gameOver') game.restart();
+});
+document.addEventListener('keyup', e => keys[e.code] = false);
+
+// ---------- INIT & LOOP ----------
+game = new Game();
+function loop() {
+  if (game) { game.update(); game.draw(); }
+  // Update HUD
+  const p1 = game.players[0], p2 = game.players[1];
+  document.getElementById('p1').textContent = p1.alive ? '♥'.repeat(p1.lives) : '💀';
+  document.getElementById('p2').textContent = p2.alive ? '♥'.repeat(p2.lives) : '💀';
+  document.getElementById('ec').textContent = game.enemies.length;
+  requestAnimationFrame(loop);
+}
 loop();
 </script>
 </body>
