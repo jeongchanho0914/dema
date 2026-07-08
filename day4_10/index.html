@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paper.io - Territory Battle</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a1a;color:#fff;font-family:'Segoe UI',Arial,sans-serif;overflow:hidden;display:flex;align-items:center;justify-content:center;height:100vh;width:100vw}
+canvas{display:block}
+#ui{position:fixed;top:20px;left:50%;transform:translateX(-50%);display:flex;gap:20px;align-items:center;z-index:10;pointer-events:none}
+#leaderboard{position:fixed;top:80px;right:20px;background:rgba(10,10,30,0.85);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:15px 20px;min-width:180px;z-index:10;backdrop-filter:blur(8px);pointer-events:none}
+#leaderboard h3{font-size:13px;text-transform:uppercase;letter-spacing:2px;color:rgba(255,255,255,0.5);margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:8px}
+.lb-entry{display:flex;justify-content:space-between;padding:4px 0;font-size:14px;align-items:center;gap:10px}
+.lb-entry .name{font-weight:600;display:flex;align-items:center;gap:6px}
+.lb-entry .name .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.lb-entry .score{color:rgba(255,255,255,0.7)}
+.lb-entry.me{background:rgba(255,255,255,0.06);border-radius:4px;padding:4px 6px;margin:0 -6px}
+.lb-entry.me .name{color:#fff}
+#minimap{position:fixed;bottom:20px;right:20px;width:150px;height:150px;border:2px solid rgba(255,255,255,0.15);border-radius:8px;z-index:10;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);overflow:hidden;pointer-events:none}
+#score-display{position:fixed;top:20px;left:20px;z-index:10;pointer-events:none}
+#score-display .label{font-size:12px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px}
+#score-display .value{font-size:28px;font-weight:700;color:#fff;text-shadow:0 0 20px rgba(100,200,255,0.3)}
+#score-display .sub{font-size:13px;color:rgba(255,255,255,0.5);margin-top:2px}
+#gameover{position:fixed;top:0;left:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);z-index:100;backdrop-filter:blur(10px)}
+#gameover .panel{background:rgba(20,20,50,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:40px 50px;text-align:center;max-width:400px}
+#gameover h2{font-size:32px;margin-bottom:10px}
+#gameover p{color:rgba(255,255,255,0.6);margin-bottom:20px}
+#gameover button{background:linear-gradient(135deg,#667eea,#764ba2);border:none;color:#fff;padding:12px 30px;border-radius:8px;font-size:16px;cursor:pointer;pointer-events:auto;transition:transform 0.2s}
+#gameover button:hover{transform:scale(1.05)}
+</style>
+</head>
+<body>
+
+<div id="score-display">
+  <div class="label">Territory</div>
+  <div class="value" id="score-value">0%</div>
+  <div class="sub" id="score-sub">eliminations: 0</div>
+</div>
+
+<div id="leaderboard">
+  <h3>Leaderboard</h3>
+  <div id="lb-entries"></div>
+</div>
+
+<div id="minimap"><canvas id="minimap-canvas" width="150" height="150"></canvas></div>
+
+<div id="gameover">
+  <div class="panel">
+    <h2 id="go-title">Game Over</h2>
+    <p id="go-msg">You were eliminated!</p>
+    <button onclick="restartGame()">Play Again</button>
+  </div>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const mmCanvas = document.getElementById('minimap-canvas');
+const mmCtx = mmCanvas.getContext('2d');
+
+// World constants
+const WORLD_R = 3000;
+const WORLD_SIZE = WORLD_R * 2;
+const CENTER_X = WORLD_R;
+const CENTER_Y = WORLD_R;
+const GRID_SIZE = 20;
+const COLORS = ['#ff4757','#2ed573','#1e90ff','#ffa502','#e056fd','#00d2d3'];
+const PLAYER_NAMES = ['You','Bot Alpha','Bot Beta','Bot Gamma','Bot Delta','Bot Epsilon'];
+const MIN_TERRITORY_RADIUS = 60;
+const RESPAWN_RADIUS = 80;
+
+// Resize
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let players = [];
+let currentPlayer = 0;
+let gameRunning = true;
+let eliminations = 0;
+let sparkles = [];
+let gameTime = 0;
+
+// Territory grid (discrete)
+let territoryGrid = [];
+let gridW, gridH;
+
+function initGrid() {
+  gridW = Math.ceil(WORLD_SIZE / GRID_SIZE);
+  gridH = Math.ceil(WORLD_SIZE / GRID_SIZE);
+  territoryGrid = [];
+  for (let i = 0; i < gridW * gridH; i++) territoryGrid.push(-1);
+}
+
+function gridIdx(x, y) {
+  const gx = Math.floor((x + WORLD_R) / GRID_SIZE);
+  const gy = Math.floor((y + WORLD_R) / GRID_SIZE);
+  if (gx < 0 || gx >= gridW || gy < 0 || gy >= gridH) return -1;
+  return gy * gridW + gx;
+}
+
+function isInWorld(x, y) {
+  return Math.sqrt(x*x + y*y) < WORLD_R;
+}
+
+// Player class
+class Player {
+  constructor(id, name, color, isAI) {
+    this.id = id;
+    this.name = name;
+    this.color = color;
+    this.isAI = isAI;
+    this.respawn();
+  }
+
+  respawn() {
+    this.alive = true;
+    this.trail = [];
+    this.territoryPixels = new Set();
+    this.enclosedCells = [];
+    this.isEnclosing = false;
+    this.territoryCount = 0;
+    this.moveAngle = Math.random() * Math.PI * 2;
+    this.moveSpeed = 3 + Math.random() * 2;
+    this.turnTimer = 0;
+    this.deathTimer = 0;
+    this.respawnProtected = 120; // frames of protection after respawn
+    
+    // Place away from center
+    let angle = Math.random() * Math.PI * 2;
+    let dist = 300 + Math.random() * (WORLD_R - 400);
+    this.x = Math.cos(angle) * dist;
+    this.y = Math.sin(angle) * dist;
+    this.heading = Math.random() * Math.PI * 2;
+    this.radius = RESPAWN_RADIUS;
+    this.targetX = this.x;
+    this.targetY = this.y;
+    
+    // Claim initial territory circle
+    this.claimCircle(this.x, this.y, RESPAWN_RADIUS);
+  }
+
+  claimCircle(cx, cy, r) {
+    const steps = Math.ceil(r / GRID_SIZE * 2);
+    for (let i = -steps; i <= steps; i++) {
+      for (let j = -steps; j <= steps; j++) {
+        const gx = Math.floor((cx + WORLD_R) / GRID_SIZE) + i;
+        const gy = Math.floor((cy + WORLD_R) / GRID_SIZE) + j;
+        if (gx < 0 || gx >= gridW || gy < 0 || gy >= gridH) continue;
+        const dx = gx * GRID_SIZE + GRID_SIZE/2 - WORLD_R - cx;
+        const dy = gy * GRID_SIZE + GRID_SIZE/2 - WORLD_R - cy;
+        if (dx*dx + dy*dy < r*r) {
+          const idx = gy * gridW + gx;
+          if (territoryGrid[idx] === -1) {
+            territoryGrid[idx] = this.id;
+            this.territoryPixels.add(idx);
+          }
+        }
+      }
+    }
+    this.territoryCount = this.territoryPixels.size;
+  }
+
+  distanceToCell(gx, gy) {
+    const cx = gx * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+    const cy = gy * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+    return Math.sqrt((this.x-cx)**2 + (this.y-cy)**2);
+  }
+
+  // Check if this cell is on the border of player's territory
+  isTerritoryBorder(gx, gy) {
+    const idx = gy * gridW + gx;
+    if (territoryGrid[idx] !== this.id) return false;
+    const dirs = [[0,-1],[0,1],[-1,0],[1,0],[-1,-1],[-1,1],[1,-1],[1,1]];
+    for (const [dx, dy] of dirs) {
+      const nx = gx + dx, ny = gy + dy;
+      if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) return true;
+      if (territoryGrid[ny * gridW + nx] !== this.id) return true;
+    }
+    return false;
+  }
+
+  update() {
+    if (!this.alive) return;
+    if (this.respawnProtected > 0) this.respawnProtected--;
+    this.deathTimer = 0;
+    
+    if (this.isAI) {
+      this.updateAI();
+    } else {
+      this.updatePlayer();
+    }
+
+    // Move
+    const dx = Math.cos(this.heading) * this.moveSpeed;
+    const dy = Math.sin(this.heading) * this.moveSpeed;
+    const nx = this.x + dx;
+    const ny = this.y + dy;
+
+    // World boundary check
+    if (!isInWorld(nx, ny)) {
+      this.heading += Math.PI + (Math.random() - 0.5) * 0.5;
+      return;
+    }
+
+    // Check collision with other players' territories or bodies
+    const gridX = Math.floor((nx + WORLD_R) / GRID_SIZE);
+    const gridY = Math.floor((ny + WORLD_R) / GRID_SIZE);
+    const idx = gridY * gridW + gridX;
+
+    if (idx >= 0 && idx < territoryGrid.length) {
+      const cellOwner = territoryGrid[idx];
+      
+      // If stepping on ENEMY territory (not ours, not empty)
+      if (cellOwner !== -1 && cellOwner !== this.id) {
+        // Die!
+        this.die(cellOwner);
+        return;
+      }
+      
+      // Check collision with enemy trail
+      for (const p of players) {
+        if (p === this || !p.alive) continue;
+        for (let i = 0; i < p.trail.length; i++) {
+          const t = p.trail[i];
+          const dist = Math.hypot(nx - t.x, ny - t.y);
+          if (dist < 15 + this.radius/2) {
+            this.die(p.id);
+            return;
+          }
+        }
+      }
+    }
+
+    this.x = nx;
+    this.y = ny;
+
+    // Check if we're on our own territory
+    const currentOwner = idx >= 0 ? territoryGrid[idx] : -1;
+    this.isEnclosing = (currentOwner === this.id);
+
+    if (this.isEnclosing && this.trail.length > 0) {
+      // Close the loop - fill territory
+      this.closeTrail();
+    }
+
+    // Add trail point (only if not on own territory)
+    if (!this.isEnclosing) {
+      this.trail.push({x: this.x, y: this.y});
+      if (this.trail.length > 5000) {
+        this.trail.splice(0, this.trail.length - 5000);
+      }
+    }
+  }
+
+  updatePlayer() {
+    // Keyboard-controlled
+    if (keys['ArrowLeft'] || keys['KeyA']) this.heading -= 0.045;
+    if (keys['ArrowRight'] || keys['KeyD']) this.heading += 0.045;
+  }
+
+  updateAI() {
+    this.turnTimer--;
+    if (this.turnTimer <= 0) {
+      // Find a direction to expand territory
+      let targetDir = this.heading;
+      
+      // Try to head toward unclaimed or border territory
+      let bestScore = -Infinity;
+      let tries = 12;
+      for (let i = 0; i < tries; i++) {
+        const angle = (i / tries) * Math.PI * 2 + this.heading - 1.5;
+        const dx = Math.cos(angle) * 100;
+        const dy = Math.sin(angle) * 100;
+        const tx = this.x + dx;
+        const ty = this.y + dy;
+        
+        if (!isInWorld(tx, ty)) continue;
+        
+        const gx = Math.floor((tx + WORLD_R) / GRID_SIZE);
+        const gy = Math.floor((ty + WORLD_R) / GRID_SIZE);
+        const idx = gy * gridW + gx;
+        const owner = idx >= 0 ? territoryGrid[idx] : -1;
+        
+        let score = 0;
+        if (owner === -1) score = 5;
+        else if (owner !== this.id) score = -10;
+        
+        // Avoid going too close to center = more aggressive
+        const distCenter = Math.hypot(tx, ty);
+        score += distCenter / WORLD_R * 3;
+        
+        // Avoid edges of world
+        if (distCenter > WORLD_R * 0.8) score -= 15;
+        
+        if (score > bestScore) {
+          bestScore = score;
+          targetDir = angle;
+        }
+      }
+      
+      this.heading = targetDir;
+      this.turnTimer = 8 + Math.random() * 15;
+      
+      // Slight jitter
+      this.heading += (Math.random() - 0.5) * 0.08;
+    }
+  }
+
+  closeTrail() {
+    if (this.trail.length < 3) return;
+
+    // Get the points that are inside our territory
+    // Fill enclosed area using the trail as boundary
+    const trailPoints = this.trail.map(p => ({
+      gx: Math.floor((p.x + WORLD_R) / GRID_SIZE),
+      gy: Math.floor((p.y + WORLD_R) / GRID_SIZE)
+    }));
+
+    // Remove duplicate grid cells
+    const uniqueCells = [];
+    const seen = new Set();
+    for (const p of trailPoints) {
+      const key = p.gy * gridW + p.gx;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueCells.push(p);
+      }
+    }
+
+    if (uniqueCells.length < 3) return;
+
+    // Find cells enclosed by the trail using flood fill from the trail
+    const trailSet = new Set();
+    for (const p of uniqueCells) {
+      trailSet.add(p.gy * gridW + p.gx);
+    }
+
+    // Use ray casting to find enclosed cells
+    // Simplified: flood fill from borders, cells not reached that are inside trail = enclosed
+    const startCells = [];
+    // Add all border cells
+    for (let gx = 0; gx < gridW; gx++) {
+      startCells.push({gx, gy: 0});
+      startCells.push({gx, gy: gridH-1});
+    }
+    for (let gy = 0; gy < gridH; gy++) {
+      startCells.push({gx: 0, gy});
+      startCells.push({gx: gridW-1, gy});
+    }
+
+    const outside = new Set();
+    const stack = [];
+    for (const s of startCells) {
+      const key = s.gy * gridW + s.gx;
+      if (!trailSet.has(key) && !outside.has(key)) {
+        outside.add(key);
+        stack.push(s);
+      }
+    }
+
+    while (stack.length > 0) {
+      const {gx, gy} = stack.pop();
+      const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+      for (const [dx, dy] of dirs) {
+        const nx = gx + dx, ny = gy + dy;
+        if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+        const key = ny * gridW + nx;
+        if (!trailSet.has(key) && !outside.has(key)) {
+          outside.add(key);
+          stack.push({gx: nx, gy: ny});
+        }
+      }
+    }
+
+    // Now any cell NOT in outside and NOT in trailSet is enclosed
+    const filled = [];
+    const minGx = Math.max(0, Math.min(...uniqueCells.map(p => p.gx)) - 2);
+    const maxGx = Math.min(gridW-1, Math.max(...uniqueCells.map(p => p.gx)) + 2);
+    const minGy = Math.max(0, Math.min(...uniqueCells.map(p => p.gy)) - 2);
+    const maxGy = Math.min(gridH-1, Math.max(...uniqueCells.map(p => p.gy)) + 2);
+
+    for (let gy = minGy; gy <= maxGy; gy++) {
+      for (let gx = minGx; gx <= maxGx; gx++) {
+        const key = gy * gridW + gx;
+        if (!outside.has(key) && !trailSet.has(key) && territoryGrid[key] === -1) {
+          filled.push(key);
+        }
+      }
+    }
+
+    // Also convert trail cells to territory
+    let newCells = 0;
+    for (const key of trailSet) {
+      if (territoryGrid[key] === -1 || territoryGrid[key] === this.id) {
+        if (territoryGrid[key] !== this.id) {
+          territoryGrid[key] = this.id;
+          this.territoryPixels.add(key);
+          newCells++;
+        }
+      }
+    }
+    for (const key of filled) {
+      if (territoryGrid[key] === -1) {
+        territoryGrid[key] = this.id;
+        this.territoryPixels.add(key);
+        newCells++;
+      }
+    }
+
+    // Spawn sparkles
+    if (newCells > 0 && this.id === 0) {
+      for (let i = 0; i < Math.min(newCells * 0.3, 40); i++) {
+        const gx = Math.floor(Math.random() * (maxGx - minGx) + minGx);
+        const gy = Math.floor(Math.random() * (maxGy - minGy) + minGy);
+        const key = gy * gridW + gx;
+        if (territoryGrid[key] === this.id) {
+          const wx = gx * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+          const wy = gy * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+          sparkles.push({
+            x: wx + (Math.random()-0.5)*GRID_SIZE,
+            y: wy + (Math.random()-0.5)*GRID_SIZE,
+            vx: (Math.random()-0.5)*3,
+            vy: (Math.random()-0.5)*3 - 1,
+            life: 1,
+            decay: 0.008 + Math.random() * 0.015,
+            size: 2 + Math.random() * 4
+          });
+        }
+      }
+    }
+
+    // Reset trail
+    this.trail = [];
+    this.isEnclosing = false;
+    this.territoryCount = this.territoryPixels.size;
+  }
+
+  die(killerId) {
+    if (!this.alive) return;
+    if (this.respawnProtected > 0) return; // invincible after respawn
+    
+    this.alive = false;
+    this.trail = [];
+    
+    // Remove territory
+    for (const idx of this.territoryPixels) {
+      if (territoryGrid[idx] === this.id) {
+        territoryGrid[idx] = -1;
+      }
+    }
+    this.territoryPixels.clear();
+    this.territoryCount = 0;
+
+    if (this.id === 0) {
+      // Player died
+      eliminations++;
+      document.getElementById('score-sub').textContent = `eliminations: ${eliminations}`;
+      setTimeout(() => {
+        this.respawn();
+      }, 1500);
+    } else {
+      // AI respawns faster
+      setTimeout(() => {
+        this.respawn();
+      }, 800 + Math.random() * 700);
+    }
+  }
+
+  draw(ctx, cam) {
+    if (!this.alive) return;
+    const sx = this.x - cam.x + canvas.width/2;
+    const sy = this.y - cam.y + canvas.height/2;
+
+    // Draw trail
+    if (this.trail.length > 1 && !this.isEnclosing) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x - cam.x + canvas.width/2, this.trail[0].y - cam.y + canvas.height/2);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i].x - cam.x + canvas.width/2, this.trail[i].y - cam.y + canvas.height/2);
+      }
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = 12;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.globalAlpha = 0.7;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Draw head
+    ctx.save();
+    ctx.translate(sx, sy);
+    
+    // Glow
+    const grad = ctx.createRadialGradient(0, 0, 5, 0, 0, this.radius + 10);
+    grad.addColorStop(0, this.color + '40');
+    grad.addColorStop(1, this.color + '00');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.radius + 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Body
+    ctx.beginPath();
+    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Eyes
+    if (this.id === 0) {
+      // Player eyes - show direction
+      const ex = Math.cos(this.heading) * this.radius * 0.4;
+      const ey = Math.sin(this.heading) * this.radius * 0.4;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(ex - 4, ey - 4, 4, 0, Math.PI * 2);
+      ctx.arc(ex + 4, ey - 4, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.arc(ex - 3 + Math.cos(this.heading)*2, ey - 4 + Math.sin(this.heading)*2, 2, 0, Math.PI * 2);
+      ctx.arc(ex + 5 + Math.cos(this.heading)*2, ey - 4 + Math.sin(this.heading)*2, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // Protection shield
+    if (this.respawnProtected > 60) {
+      ctx.beginPath();
+      ctx.arc(sx, sy, this.radius + 12, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 8]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Name
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.name, sx, sy - this.radius - 8);
+  }
+}
+
+// Sparkles
+function updateSparkles() {
+  for (let i = sparkles.length - 1; i >= 0; i--) {
+    const s = sparkles[i];
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vy += 0.05;
+    s.life -= s.decay;
+    if (s.life <= 0) {
+      sparkles.splice(i, 1);
+    }
+  }
+}
+
+function drawSparkles(ctx, cam) {
+  for (const s of sparkles) {
+    const sx = s.x - cam.x + canvas.width/2;
+    const sy = s.y - cam.y + canvas.height/2;
+    if (sx < -50 || sx > canvas.width+50 || sy < -50 || sy > canvas.height+50) continue;
+    ctx.globalAlpha = s.life;
+    ctx.fillStyle = `hsl(${45 + s.life * 20}, 100%, ${60 + s.life * 30}%)`;
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = s.size * 4;
+    ctx.beginPath();
+    ctx.arc(sx, sy, s.size * s.life, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Input
+const keys = {};
+document.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
+document.addEventListener('keyup', e => { keys[e.code] = false; e.preventDefault(); });
+
+// Camera
+const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
+
+function updateCamera() {
+  const p = players[0];
+  if (!p) return;
+  camera.targetX = p.x;
+  camera.targetY = p.y;
+  camera.x += (camera.targetX - camera.x) * 0.08;
+  camera.y += (camera.targetY - camera.y) * 0.08;
+}
+
+// Draw territory
+function drawTerritory(ctx, cam) {
+  const viewLeft = cam.x - canvas.width/2 - GRID_SIZE;
+  const viewRight = cam.x + canvas.width/2 + GRID_SIZE;
+  const viewTop = cam.y - canvas.height/2 - GRID_SIZE;
+  const viewBottom = cam.y + canvas.height/2 + GRID_SIZE;
+
+  const minGX = Math.max(0, Math.floor((viewLeft + WORLD_R) / GRID_SIZE));
+  const maxGX = Math.min(gridW-1, Math.ceil((viewRight + WORLD_R) / GRID_SIZE));
+  const minGY = Math.max(0, Math.floor((viewTop + WORLD_R) / GRID_SIZE));
+  const maxGY = Math.min(gridH-1, Math.ceil((viewBottom + WORLD_R) / GRID_SIZE));
+
+  // Draw claimed cells
+  for (let gy = minGY; gy <= maxGY; gy++) {
+    for (let gx = minGX; gx <= maxGX; gx++) {
+      const idx = gy * gridW + gx;
+      const owner = territoryGrid[idx];
+      if (owner !== -1) {
+        const wx = gx * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+        const wy = gy * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+        const sx = wx - cam.x + canvas.width/2;
+        const sy = wy - cam.y + canvas.height/2;
+        ctx.fillStyle = players[owner]?.color || '#333';
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(sx - GRID_SIZE/2, sy - GRID_SIZE/2, GRID_SIZE, GRID_SIZE);
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // Draw territory border lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  for (let gy = minGY; gy <= maxGY; gy++) {
+    for (let gx = minGX; gx <= maxGX; gx++) {
+      const idx = gy * gridW + gx;
+      const owner = territoryGrid[idx];
+      if (owner === -1) continue;
+      
+      // Check neighbors for border
+      const neighbors = [[0,-1],[0,1],[-1,0],[1,0]];
+      for (const [dx, dy] of neighbors) {
+        const nx = gx + dx, ny = gy + dy;
+        if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+        const nidx = ny * gridW + nx;
+        if (territoryGrid[nidx] !== owner) {
+          const wx = gx * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+          const wy = gy * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+          const sx = wx - cam.x + canvas.width/2;
+          const sy = wy - cam.y + canvas.height/2;
+          
+          ctx.strokeStyle = players[owner]?.color || '#fff';
+          ctx.lineWidth = 2;
+          ctx.globalAlpha = 0.6;
+          
+          if (dx === -1) { // left edge
+            ctx.beginPath(); ctx.moveTo(sx - GRID_SIZE/2, sy - GRID_SIZE/2); ctx.lineTo(sx - GRID_SIZE/2, sy + GRID_SIZE/2); ctx.stroke();
+          }
+          if (dx === 1) { // right edge
+            ctx.beginPath(); ctx.moveTo(sx + GRID_SIZE/2, sy - GRID_SIZE/2); ctx.lineTo(sx + GRID_SIZE/2, sy + GRID_SIZE/2); ctx.stroke();
+          }
+          if (dy === -1) { // top edge
+            ctx.beginPath(); ctx.moveTo(sx - GRID_SIZE/2, sy - GRID_SIZE/2); ctx.lineTo(sx + GRID_SIZE/2, sy - GRID_SIZE/2); ctx.stroke();
+          }
+          if (dy === 1) { // bottom edge
+            ctx.beginPath(); ctx.moveTo(sx - GRID_SIZE/2, sy + GRID_SIZE/2); ctx.lineTo(sx + GRID_SIZE/2, sy + GRID_SIZE/2); ctx.stroke();
+          }
+        }
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// World border
+function drawWorldBorder(ctx, cam) {
+  const sx = -cam.x + canvas.width/2;
+  const sy = -cam.y + canvas.height/2;
+  
+  ctx.beginPath();
+  ctx.arc(sx, sy, WORLD_R, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  const gridSize = 100;
+  for (let x = -WORLD_R; x <= WORLD_R; x += gridSize) {
+    const dist = Math.abs(x);
+    if (dist > WORLD_R) continue;
+    const hw = Math.sqrt(WORLD_R*WORLD_R - x*x);
+    ctx.beginPath();
+    ctx.moveTo(x - cam.x + canvas.width/2, -hw - cam.y + canvas.height/2);
+    ctx.lineTo(x - cam.x + canvas.width/2, hw - cam.y + canvas.height/2);
+    ctx.stroke();
+  }
+  for (let y = -WORLD_R; y <= WORLD_R; y += gridSize) {
+    const dist = Math.abs(y);
+    if (dist > WORLD_R) continue;
+    const hw = Math.sqrt(WORLD_R*WORLD_R - y*y);
+    ctx.beginPath();
+    ctx.moveTo(-hw - cam.x + canvas.width/2, y - cam.y + canvas.height/2);
+    ctx.lineTo(hw - cam.x + canvas.width/2, y - cam.y + canvas.height/2);
+    ctx.stroke();
+  }
+}
+
+// Minimap
+function drawMinimap() {
+  const scale = 150 / WORLD_SIZE;
+  
+  mmCtx.fillStyle = 'rgba(0,0,0,0.3)';
+  mmCtx.fillRect(0, 0, 150, 150);
+  
+  // Draw territory
+  for (let gy = 0; gy < gridH; gy+=2) {
+    for (let gx = 0; gx < gridW; gx+=2) {
+      const idx = gy * gridW + gx;
+      const owner = territoryGrid[idx];
+      if (owner !== -1) {
+        const wx = gx * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+        const wy = gy * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+        mmCtx.fillStyle = players[owner]?.color || '#333';
+        mmCtx.fillRect((wx + WORLD_R) * scale, (wy + WORLD_R) * scale, GRID_SIZE * scale * 2, GRID_SIZE * scale * 2);
+      }
+    }
+  }
+  
+  // Draw territory borders on minimap
+  mmCtx.strokeStyle = 'rgba(255,255,255,0.3)';
+  mmCtx.lineWidth = 0.5;
+  for (let gy = 1; gy < gridH-1; gy+=2) {
+    for (let gx = 1; gx < gridW-1; gx+=2) {
+      const idx = gy * gridW + gx;
+      const owner = territoryGrid[idx];
+      if (owner === -1) continue;
+      const neighbors = [[0,-1],[0,1],[-1,0],[1,0]];
+      for (const [dx, dy] of neighbors) {
+        const nidx = (gy+dy) * gridW + (gx+dx);
+        if (territoryGrid[nidx] !== owner) {
+          const wx = gx * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+          const wy = gy * GRID_SIZE + GRID_SIZE/2 - WORLD_R;
+          mmCtx.strokeStyle = players[owner]?.color || '#fff';
+          mmCtx.globalAlpha = 0.5;
+          mmCtx.lineWidth = 1;
+          mmCtx.strokeRect((wx + WORLD_R) * scale, (wy + WORLD_R) * scale, GRID_SIZE * scale, GRID_SIZE * scale);
+        }
+      }
+    }
+  }
+  mmCtx.globalAlpha = 1;
+  
+  // Draw player dots
+  for (const p of players) {
+    if (!p.alive) continue;
+    const mx = (p.x + WORLD_R) * scale;
+    const my = (p.y + WORLD_R) * scale;
+    mmCtx.fillStyle = p.color;
+    mmCtx.beginPath();
+    mmCtx.arc(mx, my, p.id === 0 ? 4 : 2, 0, Math.PI * 2);
+    mmCtx.fill();
+  }
+  
+  // Camera viewport on minimap
+  const viewW = canvas.width / 2;
+  const viewH = canvas.height / 2;
+  mmCtx.strokeStyle = 'rgba(255,255,255,0.4)';
+  mmCtx.lineWidth = 1;
+  mmCtx.strokeRect(
+    (camera.x - viewW + WORLD_R) * scale,
+    (camera.y - viewH + WORLD_R) * scale,
+    viewW * 2 * scale,
+    viewH * 2 * scale
+  );
+  
+  // World border
+  mmCtx.beginPath();
+  mmCtx.arc(75, 75, WORLD_R * scale, 0, Math.PI * 2);
+  mmCtx.strokeStyle = 'rgba(255,255,255,0.2)';
+  mmCtx.lineWidth = 1;
+  mmCtx.stroke();
+}
+
+// Leaderboard
+function updateLeaderboard() {
+  const entries = players.map(p => ({
+    id: p.id,
+    name: p.name,
+    color: p.color,
+    score: p.alive ? (p.territoryCount / (gridW * gridH) * 100) : 0,
+    alive: p.alive
+  }));
+  entries.sort((a,b) => b.score - a.score);
+  
+  const container = document.getElementById('lb-entries');
+  container.innerHTML = entries.map((e, i) => `
+    <div class="lb-entry ${e.id === 0 ? 'me' : ''}" style="${!e.alive ? 'opacity:0.4' : ''}">
+      <span class="name"><span class="dot" style="background:${e.color}"></span>${e.name}</span>
+      <span class="score">${e.alive ? e.score.toFixed(1)+'%' : '💀'}</span>
+    </div>
+  `).join('');
+  
+  // Update score display
+  const myScore = players[0]?.territoryCount / (gridW * gridH) * 100 || 0;
+  document.getElementById('score-value').textContent = myScore.toFixed(1) + '%';
+}
+
+// Init game
+function initGame() {
+  initGrid();
+  sparkles = [];
+  eliminations = 0;
+  gameTime = 0;
+  document.getElementById('score-sub').textContent = 'eliminations: 0';
+  document.getElementById('gameover').style.display = 'none';
+  gameRunning = true;
+  
+  players = [
+    new Player(0, PLAYER_NAMES[0], COLORS[0], false),
+    new Player(1, PLAYER_NAMES[1], COLORS[1], true),
+    new Player(2, PLAYER_NAMES[2], COLORS[2], true),
+    new Player(3, PLAYER_NAMES[3], COLORS[3], true),
+    new Player(4, PLAYER_NAMES[4], COLORS[4], true),
+    new Player(5, PLAYER_NAMES[5], COLORS[5], true),
+  ];
+  
+  camera.x = players[0].x;
+  camera.y = players[0].y;
+}
+
+// Game loop
+function gameLoop() {
+  if (!gameRunning) return;
+  gameTime++;
+
+  // Update
+  for (const p of players) {
+    p.update();
+  }
+  updateSparkles();
+  updateCamera();
+
+  // Draw main canvas
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Background
+  ctx.fillStyle = '#0a0a1a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  drawWorldBorder(ctx, camera);
+  drawTerritory(ctx, camera);
+  
+  for (const p of players) {
+    p.draw(ctx, camera);
+  }
+  
+  drawSparkles(ctx, camera);
+  
+  // Draw minimap
+  drawMinimap();
+  updateLeaderboard();
+  
+  requestAnimationFrame(gameLoop);
+}
+
+function restartGame() {
+  initGame();
+}
+
+// Start
+initGame();
+gameLoop();
+
+// Touch support for mobile
+let touchAngle = null;
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  touchAngle = {x: touch.clientX - rect.left - canvas.width/2, y: touch.clientY - rect.top - canvas.height/2};
+});
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const dx = touch.clientX - rect.left - canvas.width/2;
+  const dy = touch.clientY - rect.top - canvas.height/2;
+  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+    const p = players[0];
+    if (p && p.alive) {
+      p.heading = Math.atan2(dy, dx);
+    }
+  }
+});
+canvas.addEventListener('touchend', e => { touchAngle = null; });
+
+console.log('Paper.io loaded! Arena:', WORLD_R*2, 'x', WORLD_R*2, 'Players:', 6);
+</script>
+</body>
+</html>

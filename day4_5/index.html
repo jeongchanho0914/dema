@@ -1,40 +1,744 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>게임 5</title>
+<title>DIG DUG - 8-Bit Classic</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:#1a1a2e; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:Arial,sans-serif; color:#fff; }
-h1 { margin-bottom:10px; font-size:1.5rem; color:#e94560; }
-canvas { border:2px solid #333; border-radius:8px; max-width:100%; }
-p { margin-top:10px; color:#aaa; font-size:0.9rem; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'Courier New',monospace;overflow:hidden}
+#wrapper{position:relative;background:#111;border:3px solid #33ff33;border-radius:4px;box-shadow:0 0 30px rgba(51,255,51,.2)}
+canvas{display:block;cursor:none}
+#ui{display:flex;justify-content:space-between;padding:6px 10px;background:#0a0a0f;border-bottom:2px solid #333;font-size:12px;color:#aaa;letter-spacing:1px}
+#ui span{color:#33ff33}
+#lives span{color:#ff3333}
+#status{height:4px;background:#222;border-radius:2px;margin:4px 10px 0;overflow:hidden}
+#status div{height:100%;background:#33ff33;border-radius:2px;transition:width .3s}
 </style>
 </head>
 <body>
-<h1>게임 5</h1>
-<canvas id="game" width="400" height="400"></canvas>
-<p>← ↑ → ↓ / SPACE</p>
+<div id="wrapper">
+<div id="ui">
+<div>SCORE: <span id="scoreDisplay">0</span></div>
+<div>LEVEL: <span id="levelDisplay">1</span></div>
+<div id="lives">LIVES: <span id="livesDisplay">3</span></div>
+</div>
+<canvas id="game" width="560" height="400"></canvas>
+<div id="status"><div id="progressBar" style="width:100%"></div></div>
+</div>
 <script>
 const c=document.getElementById('game'),ctx=c.getContext('2d');
-const W=400,H=400;
-let x=W/2,y=H/2,vx=2,vy=2,r=15;
-function update(){
-  x+=vx;y+=vy;
-  if(x+r>W||x-r<0)vx=-vx;
-  if(y+r>H||y-r<0)vy=-vy;
+const sw=document.getElementById('scoreDisplay');
+const lw=document.getElementById('levelDisplay');
+const liw=document.getElementById('livesDisplay');
+const pb=document.getElementById('progressBar');
+
+const W=560,H=400,COLS=28,ROWS=20,TILE=20;
+const DIR={NONE:0,UP:1,DOWN:2,LEFT:3,RIGHT:4};
+const DX=[0,0,0,-1,1],DY=[0,-1,1,0,0];
+
+// 8-bit color palette
+const COLORS={
+  dirt1:'#8B4513',dirt2:'#A0522D',dirt3:'#6B3410',
+  tunnel:'#1a1a2e',rock:'#888',
+  player:'#00ff00',playerFace:'#00cc00',
+  enemy1:'#ff4400',enemy2:'#ff6600',enemy3:'#ff2200',
+  fruit:'#ffcc00',bg:'#0a0a0f',
+  uiText:'#33ff33',gameOver:'#ff0044'
+};
+
+let gameState='title'; // title|playing|gameover|levelintro
+let grid=[];
+let player={};
+let enemies=[];
+let rocks=[];
+let fruits=[];
+let particles=[];
+let score=0;
+let lives=3;
+let level=0;
+let keys={};
+let animId=null;
+let frameCount=0;
+
+// Levels
+const LEVEL_CONFIG=[
+  {enemies:2,rocks:3,fruits:1,speed:1.0,enemySpeed:0.8,dirtLayers:3},
+  {enemies:3,rocks:4,fruits:1,speed:1.0,enemySpeed:0.9,dirtLayers:3},
+  {enemies:4,rocks:5,fruits:2,speed:1.1,enemySpeed:1.0,dirtLayers:4},
+  {enemies:5,rocks:5,fruits:2,speed:1.1,enemySpeed:1.1,dirtLayers:4},
+  {enemies:6,rocks:6,fruits:2,speed:1.2,enemySpeed:1.2,dirtLayers:5},
+  {enemies:7,rocks:6,fruits:3,speed:1.2,enemySpeed:1.3,dirtLayers:5},
+  {enemies:8,rocks:7,fruits:3,speed:1.3,enemySpeed:1.4,dirtLayers:6},
+  {enemies:9,rocks:7,fruits:3,speed:1.3,enemySpeed:1.5,dirtLayers:6},
+  {enemies:10,rocks:8,fruits:4,speed:1.4,enemySpeed:1.6,dirtLayers:7},
+  {enemies:12,rocks:10,fruits:4,speed:1.5,enemySpeed:1.8,dirtLayers:8},
+];
+
+function initGrid(){
+  grid=[];
+  for(let r=0;r<ROWS;r++){
+    grid[r]=[];
+    for(let c=0;c<COLS;c++){
+      let t='dirt';
+      if(r===0||r===ROWS-1||c===0||c===COLS-1)t='wall';
+      grid[r][c]={type:t,color:COLORS.dirt1,depth:r};
+    }
+  }
+  // Color variation for dirt layers
+  const cfg=LEVEL_CONFIG[Math.min(level,LEVEL_CONFIG.length-1)];
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(grid[r][c].type==='dirt'){
+        if(r<cfg.dirtLayers)grid[r][c].color=COLORS.dirt1;
+        else if(r<cfg.dirtLayers*2)grid[r][c].color=COLORS.dirt2;
+        else grid[r][c].color=COLORS.dirt3;
+      }
+    }
+  }
 }
-function draw(){
-  ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,W,H);
-  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
-  ctx.fillStyle='#e94560';ctx.fill();
-  ctx.strokeStyle='#ff6b6b';ctx.lineWidth=2;ctx.stroke();
-  ctx.fillStyle='#fff';ctx.font='14px Arial';ctx.textAlign='center';
-  ctx.fillText('바운스 게임',W/2,30);
+
+function tunnelAt(x,y){
+  const c=Math.floor(x/TILE),r=Math.floor(y/TILE);
+  return r>=0&&r<ROWS&&c>=0&&c<COLS&&grid[r][c].type==='tunnel';
 }
-function loop(){update();draw();requestAnimationFrame(loop);}
-loop();
+
+function solidAt(x,y){
+  const c=Math.floor(x/TILE),r=Math.floor(y/TILE);
+  if(r<0||r>=ROWS||c<0||c>=COLS)return true;
+  return grid[r][c].type==='wall'||grid[r][c].type==='dirt'||grid[r][c].type==='rock';
+}
+
+function digTile(c,r){
+  if(r<0||r>=ROWS||c<0||c>=COLS)return false;
+  if(grid[r][c].type!=='dirt')return false;
+  grid[r][c].type='tunnel';
+  grid[r][c].color=COLORS.tunnel;
+  // Particle effect
+  for(let i=0;i<4;i++){
+    particles.push({
+      x:c*TILE+TILE/2,y:r*TILE+TILE/2,
+      vx:(Math.random()-0.5)*3,vy:(Math.random()-0.5)*3,
+      life:20,color:'#8B4513',size:3
+    });
+  }
+  // Check for collapsing blocks above
+  collapseCheck(c,r);
+  return true;
+}
+
+function collapseCheck(c,r){
+  for(let row=r-1;row>=0;row--){
+    if(grid[row][c].type==='wall')break;
+    if(grid[row][c].type==='dirt'||grid[row][c].type==='rock'){
+      // Check if the block below is empty (tunnel or nothing)
+      if(row+1<ROWS&&grid[row+1][c].type==='tunnel'){
+        // Fall down
+        const fallingType=grid[row][c].type;
+        const fallingColor=grid[row][c].color;
+        grid[row][c].type='tunnel';
+        grid[row][c].color=COLORS.tunnel;
+        // Find landing spot
+        let landRow=row+1;
+        while(landRow+1<ROWS&&grid[landRow+1][c].type==='tunnel')landRow++;
+        grid[landRow][c].type=fallingType;
+        grid[landRow][c].color=fallingColor;
+        // Check if it crushes something
+        if(fallingType==='rock'){
+          // Check for enemies crushed
+          for(let i=enemies.length-1;i>=0;i--){
+            const ec=Math.floor(enemies[i].x/TILE),er=Math.floor(enemies[i].y/TILE);
+            if(ec===c&&er===landRow){
+              score+=300;
+              sw.textContent=score;
+              spawnParticles(enemies[i].x,enemies[i].y,'#ff4400',15);
+              enemies.splice(i,1);
+            }
+          }
+          // Check if it crushes the player
+          const pc=Math.floor(player.x/TILE),pr=Math.floor(player.y/TILE);
+          if(pc===c&&pr===landRow){
+            playerHit();
+          }
+        }
+        // Check for chain collapse
+        collapseCheck(c,landRow);
+      }
+      break;
+    }
+  }
+}
+
+function spawnParticles(x,y,color,n=10){
+  for(let i=0;i<n;i++){
+    particles.push({
+      x,y,
+      vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4,
+      life:30+Math.random()*20,color,size:2+Math.random()*3
+    });
+  }
+}
+
+function initLevel(){
+  initGrid();
+  const cfg=LEVEL_CONFIG[Math.min(level,LEVEL_CONFIG.length-1)];
+
+  // Place player
+  player={x:1.5*TILE,y:1.5*TILE,dir:DIR.RIGHT,anim:0,speed:cfg.speed,moveTimer:0};
+
+  // Clear starting area
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+    if(grid[r][c].type==='dirt'){grid[r][c].type='tunnel';grid[r][c].color=COLORS.tunnel;}
+  }
+
+  // Place enemies (fire monsters) - spawn in lower areas
+  enemies=[];
+  for(let i=0;i<cfg.enemies;i++){
+    let ex,ey;
+    do{
+      ex=Math.floor(2+Math.random()*(COLS-4))*TILE+TILE/2;
+      ey=Math.floor(ROWS-3-Math.random()*5)*TILE+TILE/2;
+    }while(solidAt(ex,ey)||(Math.abs(ex-player.x)<3*TILE&&Math.abs(ey-player.y)<3*TILE));
+    enemies.push({
+      x:ex,y:ey,dir:DIR.UP,anim:0,
+      speed:cfg.enemySpeed,timer:0,
+      state:'chase', // chase|scatter
+      stunTimer:0,
+      alive:true
+    });
+  }
+
+  // Place rocks
+  rocks=[];
+  for(let i=0;i<cfg.rocks;i++){
+    let rx,ry;
+    do{
+      rx=Math.floor(3+Math.random()*(COLS-6))*TILE+TILE/2;
+      ry=Math.floor(2+Math.random()*(ROWS-4))*TILE+TILE/2;
+    }while(solidAt(rx,ry)||(Math.abs(rx-player.x)<4*TILE&&Math.abs(ry-player.y)<4*TILE));
+    rocks.push({x:rx,y:ry,idle:true,stable:true});
+    // Place rock tile on grid
+    const rc=Math.floor(rx/TILE),rr=Math.floor(ry/TILE);
+    if(grid[rr]&&grid[rr][rc]&&grid[rr][rc].type==='dirt'){
+      grid[rr][rc].type='rock';
+      grid[rr][rc].color=COLORS.rock;
+    }
+  }
+
+  // Place fruits
+  fruits=[];
+  for(let i=0;i<cfg.fruits;i++){
+    let fx,fy;
+    do{
+      fx=Math.floor(3+Math.random()*(COLS-6))*TILE+TILE/2;
+      fy=Math.floor(3+Math.random()*(ROWS-6))*TILE+TILE/2;
+    }while(solidAt(fx,fy));
+    fruits.push({x:fx,y:fy,type:Math.floor(Math.random()*3),collected:false});
+  }
+
+  // Progress bar
+  updateProgress();
+  gameState='levelintro';
+}
+
+function updateProgress(){
+  const cfg=LEVEL_CONFIG[Math.min(level,LEVEL_CONFIG.length-1)];
+  const alive=enemies.filter(e=>e.alive).length;
+  const pct=cfg.enemies>0?((cfg.enemies-alive)/cfg.enemies*100):100;
+  pb.style.width=Math.max(0,pct)+'%';
+}
+
+function playerHit(){
+  lives--;
+  liw.textContent=lives;
+  spawnParticles(player.x,player.y,'#ff0044',20);
+  if(lives<=0){
+    gameState='gameover';
+  }else{
+    // Respawn
+    player.x=1.5*TILE;player.y=1.5*TILE;
+    // Clear area
+    for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+      if(grid[r]&&grid[r][c]&&grid[r][c].type==='dirt'){grid[r][c].type='tunnel';grid[r][c].color=COLORS.tunnel;}
+    }
+  }
+}
+
+function updatePlayer(){
+  if(gameState!=='playing')return;
+  const cfg=LEVEL_CONFIG[Math.min(level,LEVEL_CONFIG.length-1)];
+
+  let nx=player.x,ny=player.y;
+  let moving=false;
+  const spd=player.speed;
+
+  if(keys['ArrowUp']||keys['KeyW']){ny-=spd;player.dir=DIR.UP;moving=true;}
+  else if(keys['ArrowDown']||keys['KeyS']){ny+=spd;player.dir=DIR.DOWN;moving=true;}
+  else if(keys['ArrowLeft']||keys['KeyA']){nx-=spd;player.dir=DIR.LEFT;moving=true;}
+  else if(keys['ArrowRight']||keys['KeyD']){nx+=spd;player.dir=DIR.RIGHT;moving=true;}
+
+  if(moving&&!solidAt(nx,ny)){
+    player.x=nx;player.y=ny;
+    player.anim+=0.1;
+    // Dig
+    const c=Math.floor(player.x/TILE),r=Math.floor(player.y/TILE);
+    digTile(c,r);
+    // Also dig surrounding tiles for smooth movement
+    const ox=player.x%TILE,oy=player.y%TILE;
+    if(ox<TILE/2&&c-1>=0)digTile(c-1,r);
+    if(ox>TILE/2)digTile(c+1,r);
+    if(oy<TILE/2&&r-1>=0)digTile(c,r-1);
+    if(oy>TILE/2)digTile(c+1,r);
+  }
+
+  // Space bar - drop rock
+  if(keys['Space']){
+    keys['Space']=false;
+    // Find rock above player
+    const c=Math.floor(player.x/TILE),r=Math.floor(player.y/TILE);
+    for(let row=r-1;row>=0;row--){
+      if(grid[row]&&grid[row][c]&&grid[row][c].type==='rock'){
+        grid[row][c].type='tunnel';
+        grid[row][c].color=COLORS.tunnel;
+        // Move it down until it hits something
+        let landRow=row+1;
+        while(landRow<ROWS&&grid[landRow][c].type==='tunnel')landRow++;
+        landRow--;
+        if(landRow>row){
+          grid[landRow][c].type='rock';
+          grid[landRow][c].color=COLORS.rock;
+          // Check what it hits
+          const lr=landRow+1;
+          if(lr<ROWS){
+            // Crush enemies
+            for(let i=enemies.length-1;i>=0;i--){
+              const ec=Math.floor(enemies[i].x/TILE),er=Math.floor(enemies[i].y/TILE);
+              if(ec===c&&er===lr){
+                score+=300;
+                sw.textContent=score;
+                spawnParticles(enemies[i].x,enemies[i].y,'#ff4400',15);
+                enemies[i].alive=false;
+                updateProgress();
+              }
+            }
+            // Crush player
+            const pc=Math.floor(player.x/TILE),pr=Math.floor(player.y/TILE);
+            if(pc===c&&pr===lr){
+              playerHit();
+            }
+          }
+          spawnParticles(c*TILE+TILE/2,landRow*TILE,'#888',8);
+          // Chain collapse
+          collapseCheck(c,landRow);
+        }
+        break;
+      }
+    }
+  }
+
+  // Check enemy collision
+  for(let e of enemies){
+    if(!e.alive)continue;
+    const dx=player.x-e.x,dy=player.y-e.y;
+    if(Math.abs(dx)<TILE-2&&Math.abs(dy)<TILE-2){
+      playerHit();
+      break;
+    }
+  }
+
+  // Check fruit collection
+  for(let f of fruits){
+    if(f.collected)continue;
+    const dx=player.x-f.x,dy=player.y-f.y;
+    if(Math.abs(dx)<TILE/2&&Math.abs(dy)<TILE/2){
+      f.collected=true;
+      score+=200;
+      sw.textContent=score;
+      spawnParticles(f.x,f.y,'#ffcc00',12);
+    }
+  }
+}
+
+function updateEnemies(){
+  if(gameState!=='playing')return;
+  const cfg=LEVEL_CONFIG[Math.min(level,LEVEL_CONFIG.length-1)];
+
+  for(let e of enemies){
+    if(!e.alive)continue;
+    if(e.stunTimer>0){e.stunTimer--;continue;}
+
+    e.timer++;
+    if(e.timer<10)continue; // Slower movement
+    e.timer=0;
+
+    // Chase behavior: move toward player
+    const dx=player.x-e.x;
+    const dy=player.y-e.y;
+    let options=[];
+    const dirs=[DIR.UP,DIR.DOWN,DIR.LEFT,DIR.RIGHT];
+    for(let d of dirs){
+      const nx=e.x+DX[d]*TILE,ny=e.y+DY[d]*TILE;
+      if(!solidAt(nx,ny)||tunnelAt(nx,ny)){
+        // Prefer tunnels over solid
+        options.push({dir:d,pref:solidAt(nx,ny)?0:1,dx:nx-player.x,dy:ny-player.y});
+      }
+    }
+
+    if(options.length>0){
+      // Score options: prefer tunnels, prefer direction toward player
+      for(let o of options){
+        o.score=o.pref*100 - (Math.abs(o.dx)+Math.abs(o.dy));
+      }
+      options.sort((a,b)=>b.score-a.score);
+      // 70% chance take best, 30% random
+      let chosen;
+      if(Math.random()<0.7){
+        chosen=options[0];
+      }else{
+        chosen=options[Math.floor(Math.random()*options.length)];
+      }
+      e.dir=chosen.dir;
+      e.x+=DX[e.dir]*TILE;
+      e.y+=DY[e.dir]*TILE;
+      e.anim+=0.2;
+    }
+
+    // Wrap around edges
+    if(e.x<0)e.x=W-TILE;
+    if(e.x>=W)e.x=0;
+    if(e.y<0)e.y=H-TILE;
+    if(e.y>=H)e.y=0;
+
+    // Enemy-enemy separation
+    for(let e2 of enemies){
+      if(e2===e||!e2.alive)continue;
+      const ex=Math.abs(e.x-e2.x),ey=Math.abs(e.y-e2.y);
+      if(ex<TILE&&ey<TILE){
+        if(ex<ey)e.x+=(e.x<e2.x?-TILE:TILE);
+        else e.y+=(e.y<e2.y?-TILE:TILE);
+      }
+    }
+  }
+
+  // Check if all enemies cleared
+  if(enemies.every(e=>!e.alive)){
+    level++;
+    lw.textContent=level+1;
+    setTimeout(()=>initLevel(),1000);
+  }
+  updateProgress();
+}
+
+function drawGrid(){
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      const g=grid[r][c];
+      if(g.type==='wall'){
+        ctx.fillStyle='#222';
+        ctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+        ctx.strokeStyle='#333';
+        ctx.strokeRect(c*TILE,r*TILE,TILE,TILE);
+      }else if(g.type==='dirt'){
+        ctx.fillStyle=g.color;
+        ctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+        // Texture dots
+        ctx.fillStyle='rgba(0,0,0,0.15)';
+        ctx.fillRect(c*TILE+5,r*TILE+5,3,3);
+        ctx.fillRect(c*TILE+13,r*TILE+11,2,2);
+      }else if(g.type==='rock'){
+        ctx.fillStyle=COLORS.rock;
+        ctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+        ctx.fillStyle='#999';
+        ctx.fillRect(c*TILE+2,r*TILE+2,6,6);
+        ctx.fillRect(c*TILE+10,r*TILE+8,5,5);
+        ctx.strokeStyle='#666';
+        ctx.lineWidth=1;
+        ctx.strokeRect(c*TILE+1,r*TILE+1,TILE-2,TILE-2);
+      }
+      // else tunnel: draw nothing (background)
+    }
+  }
+}
+
+function drawPlayer(){
+  const px=player.x-TILE/2,py=player.y-TILE/2;
+  ctx.save();
+  ctx.translate(player.x,player.y);
+
+  // Body
+  ctx.fillStyle='#00dd00';
+  ctx.beginPath();
+  ctx.arc(0,0,TILE/2-2,0,Math.PI*2);
+  ctx.fill();
+
+  // Face (direction indicator)
+  ctx.fillStyle=COLORS.playerFace;
+  let fx=0,fy=0;
+  if(player.dir===DIR.RIGHT)fx=4;
+  else if(player.dir===DIR.LEFT)fx=-4;
+  else if(player.dir===DIR.DOWN)fy=4;
+  else if(player.dir===DIR.UP)fy=-4;
+  ctx.beginPath();
+  ctx.arc(fx,fy,4,0,Math.PI*2);
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle='#fff';
+  ctx.beginPath();
+  ctx.arc(-3,-3,3,0,Math.PI*2);
+  ctx.arc(3,-3,3,0,Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle='#000';
+  ctx.beginPath();
+  ctx.arc(-3+fx*0.2,-3+fy*0.2,1.5,0,Math.PI*2);
+  ctx.arc(3+fx*0.2,-3+fy*0.2,1.5,0,Math.PI*2);
+  ctx.fill();
+
+  // Pump nozzle (front)
+  ctx.strokeStyle='#999';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  ctx.lineTo(fx*2,fy*2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawEnemies(){
+  for(let e of enemies){
+    if(!e.alive)continue;
+    ctx.save();
+    ctx.translate(e.x,e.y);
+
+    // Fire monster body
+    const pulse=Math.sin(e.anim)*2;
+    const colors=[COLORS.enemy1,COLORS.enemy2,COLORS.enemy3];
+    const ci=Math.floor(e.anim)%3;
+
+    // Flames at bottom
+    for(let i=0;i<3;i++){
+      const fw=6-pulse,fl=8+Math.sin(e.anim+i)*2;
+      ctx.fillStyle='#ff6600';
+      ctx.beginPath();
+      ctx.moveTo(-4+i*5,6);
+      ctx.quadraticCurveTo(-4+i*5,6+fl,0+i*5,6);
+      ctx.fill();
+    }
+
+    // Body
+    ctx.fillStyle=colors[ci];
+    ctx.beginPath();
+    ctx.arc(0,0,TILE/2-2,0,Math.PI*2);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle='#ffcc00';
+    ctx.beginPath();
+    ctx.arc(-4,-3,3,0,Math.PI*2);
+    ctx.arc(4,-3,3,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle='#000';
+    ctx.beginPath();
+    ctx.arc(-4+1,-3+1,1.5,0,Math.PI*2);
+    ctx.arc(4+1,-3+1,1.5,0,Math.PI*2);
+    ctx.fill();
+
+    // Angry eyebrows
+    ctx.strokeStyle='#000';
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(-7,-6);ctx.lineTo(-3,-5);
+    ctx.moveTo(7,-6);ctx.lineTo(3,-5);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
+function drawRocks(){
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(grid[r][c].type==='rock'){
+        ctx.fillStyle='#777';
+        ctx.fillRect(c*TILE+1,r*TILE+1,TILE-2,TILE-2);
+        ctx.fillStyle='#888';
+        ctx.fillRect(c*TILE+3,r*TILE+3,6,5);
+        ctx.fillRect(c*TILE+11,r*TILE+8,5,4);
+        ctx.strokeStyle='#555';
+        ctx.lineWidth=1;
+        ctx.strokeRect(c*TILE+1,r*TILE+1,TILE-2,TILE-2);
+      }
+    }
+  }
+}
+
+function drawFruits(){
+  for(let f of fruits){
+    if(f.collected)continue;
+    ctx.save();
+    ctx.translate(f.x,f.y);
+    const bob=Math.sin(frameCount*0.05)*2;
+    ctx.translate(0,bob);
+
+    const colors=['#ff3333','#33ff33','#ffcc00'];
+    const labels=['🍎','🍒','🍊'];
+    ctx.fillStyle=colors[f.type];
+    ctx.beginPath();
+    ctx.arc(0,0,6,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.font='8px sans-serif';
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText(labels[f.type],0,0);
+
+    ctx.restore();
+  }
+}
+
+function drawParticles(){
+  for(let p of particles){
+    ctx.globalAlpha=p.life/50;
+    ctx.fillStyle=p.color;
+    ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  }
+  ctx.globalAlpha=1;
+}
+
+function updateParticles(){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;
+    p.vy+=0.1;
+    p.life--;
+    if(p.life<=0)particles.splice(i,1);
+  }
+}
+
+function drawUI(){
+  // Level intro
+  if(gameState==='levelintro'){
+    ctx.fillStyle='rgba(0,0,0,0.7)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#33ff33';
+    ctx.font='bold 32px "Courier New",monospace';
+    ctx.textAlign='center';
+    ctx.fillText(`LEVEL ${level+1}`,W/2,H/2-20);
+    ctx.fillStyle='#aaa';
+    ctx.font='14px "Courier New",monospace';
+    ctx.fillText('Press ENTER to start',W/2,H/2+20);
+  }
+
+  // Game over
+  if(gameState==='gameover'){
+    ctx.fillStyle='rgba(0,0,0,0.8)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#ff0044';
+    ctx.font='bold 36px "Courier New",monospace';
+    ctx.textAlign='center';
+    ctx.fillText('GAME OVER',W/2,H/2-30);
+    ctx.fillStyle='#33ff33';
+    ctx.font='18px "Courier New",monospace';
+    ctx.fillText(`Final Score: ${score}`,W/2,H/2+10);
+    ctx.fillStyle='#aaa';
+    ctx.font='14px "Courier New",monospace';
+    ctx.fillText('Press ENTER to restart',W/2,H/2+40);
+  }
+
+  // Title screen
+  if(gameState==='title'){
+    ctx.fillStyle='#0a0a0f';
+    ctx.fillRect(0,0,W,H);
+    // Grid pattern
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++){
+        ctx.fillStyle=r%2===c%2?'#0f0f17':'#0a0a0f';
+        ctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+      }
+    }
+    ctx.fillStyle='#33ff33';
+    ctx.font='bold 42px "Courier New",monospace';
+    ctx.textAlign='center';
+    ctx.fillText('DIG DUG',W/2,120);
+    ctx.fillStyle='#ff4400';
+    ctx.font='20px "Courier New",monospace';
+    ctx.fillText('🔥 FIRE MONSTERS 🔥',W/2,165);
+    ctx.fillStyle='#888';
+    ctx.font='12px "Courier New",monospace';
+    ctx.fillText('Arrow Keys: Move & Dig  |  Space: Drop Rock',W/2,220);
+    ctx.fillStyle='#ffcc00';
+    ctx.font='12px "Courier New",monospace';
+    ctx.fillText('Collect Fruits: +200  |  Rock Kill: +300',W/2,245);
+    ctx.fillStyle='#33ff33';
+    ctx.font='bold 16px "Courier New",monospace';
+    const blink=Math.sin(frameCount*0.1)>0;
+    if(blink)ctx.fillText('PRESS ENTER TO START',W/2,300);
+    ctx.fillStyle='#555';
+    ctx.font='10px "Courier New",monospace';
+    ctx.fillText('8-BIT CLASSIC · 2024',W/2,H-20);
+  }
+}
+
+function gameLoop(){
+  frameCount++;
+
+  switch(gameState){
+    case 'title':
+      break;
+    case 'levelintro':
+      break;
+    case 'playing':
+      updatePlayer();
+      updateEnemies();
+      updateParticles();
+      break;
+    case 'gameover':
+      updateParticles();
+      break;
+  }
+
+  // Draw
+  ctx.clearRect(0,0,W,H);
+  drawGrid();
+  drawRocks();
+  drawFruits();
+  drawEnemies();
+  drawPlayer();
+  drawParticles();
+  drawUI();
+
+  animId=requestAnimationFrame(gameLoop);
+}
+
+// Keyboard
+document.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(e.code==='Enter'){
+    if(gameState==='title'){
+      level=0;score=0;lives=3;
+      sw.textContent='0';lw.textContent='1';liw.textContent='3';
+      initLevel();
+      gameState='playing';
+    }else if(gameState==='levelintro'){
+      gameState='playing';
+    }else if(gameState==='gameover'){
+      level=0;score=0;lives=3;
+      sw.textContent='0';lw.textContent='1';liw.textContent='3';
+      initLevel();
+      gameState='playing';
+    }
+  }
+  e.preventDefault();
+});
+document.addEventListener('keyup',e=>{
+  keys[e.code]=false;
+  e.preventDefault();
+});
+
+// Start
+initLevel();
+gameLoop();
 </script>
 </body>
 </html>
