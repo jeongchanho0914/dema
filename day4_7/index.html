@@ -494,7 +494,6 @@ function drawTower(tower) {
   ctx.translate(x, y);
   ctx.rotate(angle);
   // Draw based on type
-  cfg = TOWER_TYPES[tower.type];
   if (tower.type === 'arrow') {
     // Arrow shape
     ctx.beginPath();
@@ -601,7 +600,7 @@ function updateProjectile(p, dt) {
 
 function updateCannonProjectile(p, dt) {
   if (!p.alive) return;
-  const dx, dy, d;
+  let dx, dy, d;
   if (p.target && p.target.alive) {
     dx = p.target.x - p.x;
     dy = p.target.y - p.y;
@@ -682,11 +681,13 @@ function generateWave(num) {
     if (num >= 2 && roll < 0.15) type = 'fast';
     if (num >= 4 && roll < 0.08) type = 'tank';
     if (num >= 3 && roll < 0.05) type = 'fast';
-    enemies.push({type, delay: 0.5 + i * (num > 10 ? 0.35 : 0.5)});
+    // relative delay between spawns
+    const delay = 0.4 + Math.random() * 0.2;
+    enemies.push({type, delay});
   }
   // Boss every 5 waves
   if (num % 5 === 0) {
-    enemies.push({type: 'boss', delay: (count + 1) * 0.5});
+    enemies.push({type: 'boss', delay: 0.8});
   }
   return enemies;
 }
