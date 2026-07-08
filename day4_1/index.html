@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>게임 1</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#1a1a2e; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:Arial,sans-serif; color:#fff; }
+h1 { margin-bottom:10px; font-size:1.5rem; color:#e94560; }
+canvas { border:2px solid #333; border-radius:8px; max-width:100%; }
+p { margin-top:10px; color:#aaa; font-size:0.9rem; }
+</style>
+</head>
+<body>
+<h1>게임 1</h1>
+<canvas id="game" width="400" height="400"></canvas>
+<p>← ↑ → ↓ / SPACE</p>
+<script>
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+const W=400,H=400;
+let x=W/2,y=H/2,vx=2,vy=2,r=15;
+function update(){
+  x+=vx;y+=vy;
+  if(x+r>W||x-r<0)vx=-vx;
+  if(y+r>H||y-r<0)vy=-vy;
+}
+function draw(){
+  ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,W,H);
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle='#e94560';ctx.fill();
+  ctx.strokeStyle='#ff6b6b';ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle='#fff';ctx.font='14px Arial';ctx.textAlign='center';
+  ctx.fillText('바운스 게임',W/2,30);
+}
+function loop(){update();draw();requestAnimationFrame(loop);}
+loop();
+</script>
+</body>
+</html>
