@@ -2,39 +2,788 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>게임 9</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Slither.io Style Game</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:#1a1a2e; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:Arial,sans-serif; color:#fff; }
-h1 { margin-bottom:10px; font-size:1.5rem; color:#e94560; }
-canvas { border:2px solid #333; border-radius:8px; max-width:100%; }
-p { margin-top:10px; color:#aaa; font-size:0.9rem; }
+*{margin:0;padding:0;box-sizing:border-box;user-select:none}
+body{background:#0a0a1a;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif;touch-action:none}
+#gameCanvas{display:block;cursor:none;touch-action:none}
+#ui{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
+#score{position:absolute;top:15px;left:20px;color:#fff;font-size:1.1rem;text-shadow:0 0 10px rgba(255,255,255,.3);font-weight:600}
+#score span{color:#ffd700;font-size:1.4rem}
+#speedBoost{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#aaa;font-size:.8rem;text-shadow:0 0 8px rgba(0,0,0,.8);background:rgba(0,0,0,.5);padding:6px 16px;border-radius:20px;border:1px solid rgba(255,255,255,.1)}
+#leaderboard{position:absolute;top:15px;right:15px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 16px;min-width:150px;backdrop-filter:blur(6px)}
+#leaderboard h3{color:#ffd700;font-size:.8rem;margin-bottom:8px;text-align:center;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid rgba(255,215,0,.2);padding-bottom:5px}
+#leaderboard .lb-entry{display:flex;justify-content:space-between;padding:3px 0;font-size:.75rem;color:#ccc}
+#leaderboard .lb-entry .lb-rank{color:#ffd700;font-weight:700;width:20px}
+#leaderboard .lb-entry .lb-name{flex:1;margin-left:6px}
+#leaderboard .lb-entry .lb-score{color:#fff;font-weight:600}
+#leaderboard .lb-entry.me{background:rgba(255,215,0,.1);border-radius:4px;padding:3px 4px}
+#minimap{position:absolute;bottom:15px;right:15px;width:140px;height:140px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.15);border-radius:8px;overflow:hidden;backdrop-filter:blur(4px)}
+#minimap canvas{width:100%;height:100%}
+#deathScreen{position:fixed;top:0;left:0;width:100%;height:100%;display:none;justify-content:center;align-items:center;background:rgba(0,0,0,.8);z-index:100;pointer-events:all}
+#deathScreen .panel{background:rgba(20,20,40,.95);border:1px solid rgba(255,50,50,.4);border-radius:16px;padding:40px 50px;text-align:center;box-shadow:0 0 80px rgba(255,50,50,.2)}
+#deathScreen h1{color:#ff4444;font-size:2.2rem;margin-bottom:8px}
+#deathScreen .final-score{color:#ffd700;font-size:1.6rem;margin-bottom:6px}
+#deathScreen .final-length{color:#aaa;font-size:1rem;margin-bottom:20px}
+#deathScreen button{background:#ffd700;border:none;color:#111;font-size:1.1rem;font-weight:700;padding:12px 40px;border-radius:30px;cursor:pointer;pointer-events:all;transition:transform .1s}
+#deathScreen button:active{transform:scale(.95)}
 </style>
 </head>
 <body>
-<h1>게임 9</h1>
-<canvas id="game" width="400" height="400"></canvas>
-<p>← ↑ → ↓ / SPACE</p>
+<canvas id="gameCanvas"></canvas>
+<div id="ui">
+<div id="score">🍎 SCORE: <span id="scoreVal">0</span> | LENGTH: <span id="lengthVal">10</span></div>
+<div id="leaderboard"><h3>🏆 LEADERBOARD</h3><div id="lbEntries"></div></div>
+<div id="minimap"><canvas id="minimapCanvas"></canvas></div>
+<div id="speedBoost">🟡 HOLD LEFT CLICK / PRESS SPACE FOR SPEED</div>
+</div>
+<div id="deathScreen">
+<div class="panel">
+<h1>💀 YOU DIED</h1>
+<div class="final-score">Score: <span id="finalScore">0</span></div>
+<div class="final-length">Length: <span id="finalLength">10</span></div>
+<button id="restartBtn">🔄 PLAY AGAIN</button>
+</div>
+</div>
 <script>
-const c=document.getElementById('game'),ctx=c.getContext('2d');
-const W=400,H=400;
-let x=W/2,y=H/2,vx=2,vy=2,r=15;
-function update(){
-  x+=vx;y+=vy;
-  if(x+r>W||x-r<0)vx=-vx;
-  if(y+r>H||y-r<0)vy=-vy;
+// ─── CONFIG ──────────────────────────────────────────────────────────
+const CONFIG = {
+  WORLD_W: 4000, WORLD_H: 4000,
+  CELL_RADIUS: 10,
+  MOVE_SPEED: 3.5,
+  BOOST_MULT: 2.0,
+  ORB_COUNT: 200,
+  AI_COUNT: 4,
+  TRAIL_LEN: 12,
+  PARTICLE_COUNT: 30,
+  MINIMAP_SIZE: 140,
+  FOLLOW_LERP: 0.08,
+  COLORS: [
+    '#ff4757','#ff6b81','#ffa502','#ffd700','#2ed573','#1e90ff',
+    '#a855f7','#ff69b4','#00d2d3','#f368e0','#0abde3','#10ac84',
+    '#ee5a24','#ff9ff3','#54a0ff','#5f27cd'
+  ]
+};
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const minimapCanvas = document.getElementById('minimapCanvas');
+const minimapCtx = minimapCanvas.getContext('2d');
+minimapCanvas.width = CONFIG.MINIMAP_SIZE;
+minimapCanvas.height = CONFIG.MINIMAP_SIZE;
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
 }
-function draw(){
-  ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,W,H);
-  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
-  ctx.fillStyle='#e94560';ctx.fill();
-  ctx.strokeStyle='#ff6b6b';ctx.lineWidth=2;ctx.stroke();
-  ctx.fillStyle='#fff';ctx.font='14px Arial';ctx.textAlign='center';
-  ctx.fillText('바운스 게임',W/2,30);
+resize();
+window.addEventListener('resize', resize);
+
+// ─── UTILITIES ───────────────────────────────────────────────────────
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function lerp(a,b,t){return a+(b-a)*t}
+function rand(a,b){return Math.random()*(b-a)+a}
+function randInt(a,b){return Math.floor(rand(a,b))}
+function clamp(v,mn,mx){return Math.max(mn,Math.min(mx,v))}
+
+// ─── GAME STATE ──────────────────────────────────────────────────────
+let game = {
+  snakes: [],
+  orbs: [],
+  particles: [],
+  mouse: {x:W/2,y:W/2},
+  mouseDown: false,
+  gameOver: false,
+  score: 0,
+  rainbow: false,
+  rainbowHue: 0,
+  hue: randInt(0,360),
+  camera: {x:0,y:0},
+};
+
+// ─── SNAKE ───────────────────────────────────────────────────────────
+class Snake {
+  constructor(x, y, isPlayer, name) {
+    this.isPlayer = isPlayer;
+    this.name = name || (isPlayer ? 'YOU' : 'AI-' + randInt(1,999));
+    this.segments = [];
+    this.vel = {x:0,y:0};
+    this.angle = 0;
+    this.speed = CONFIG.MOVE_SPEED;
+    this.alive = true;
+    this.color = isPlayer ? `hsl(${game.hue},100%,55%)` : CONFIG.COLORS[randInt(0,CONFIG.COLORS.length)];
+    this.hue = isPlayer ? game.hue : randInt(0,360);
+    this.trail = [];
+    this.aiTarget = {x:rand(100,CONFIG.WORLD_W-100),y:rand(100,CONFIG.WORLD_H-100)};
+    this.aiTimer = 0;
+    this.aiWanderDir = Math.random()*Math.PI*2;
+    this.length = 10;
+
+    for (let i = 0; i < this.length; i++) {
+      this.segments.push({x:x - i*CONFIG.CELL_RADIUS*0.8, y:y});
+    }
+  }
+
+  get head() { return this.segments[0]; }
+  get score() { return Math.floor(this.length * 10); }
+
+  update(dt) {
+    if (!this.alive) return;
+    const head = this.head;
+
+    if (this.isPlayer) {
+      const targetAngle = Math.atan2(game.mouse.y - head.y, game.mouse.x - head.x);
+      this.angle = targetAngle;
+      this.speed = game.mouseDown ? CONFIG.MOVE_SPEED * CONFIG.BOOST_MULT : CONFIG.MOVE_SPEED;
+    } else {
+      this.updateAI(dt);
+    }
+
+    const spd = this.speed * (this.isPlayer ? 1 : 0.85);
+    const dx = Math.cos(this.angle) * spd;
+    const dy = Math.sin(this.angle) * spd;
+
+    // Move head
+    this.segments[0].x += dx;
+    this.segments[0].y += dy;
+
+    // World bounds
+    if (this.isPlayer) {
+      this.segments[0].x = clamp(this.segments[0].x, 10, CONFIG.WORLD_W-10);
+      this.segments[0].y = clamp(this.segments[0].y, 10, CONFIG.WORLD_H-10);
+    } else {
+      this.segments[0].x = clamp(this.segments[0].x, 10, CONFIG.WORLD_W-10);
+      this.segments[0].y = clamp(this.segments[0].y, 10, CONFIG.WORLD_H-10);
+    }
+
+    // Body follows head with smooth curve interpolation
+    for (let i = this.segments.length-1; i > 0; i--) {
+      const target = this.segments[i-1];
+      const seg = this.segments[i];
+      const d = dist(seg, target);
+      const idealDist = CONFIG.CELL_RADIUS * 0.75;
+      if (d > idealDist) {
+        const ratio = idealDist / d;
+        seg.x = lerp(seg.x, target.x + (seg.x - target.x) * ratio, 0.3);
+        seg.y = lerp(seg.y, target.y + (seg.y - target.y) * ratio, 0.3);
+      }
+    }
+
+    // Trail particles
+    if (this.isPlayer) {
+      const speedRatio = this.speed / CONFIG.MOVE_SPEED;
+      this.trail.push({x:head.x, y:head.y, life:1, speed:speedRatio});
+      if (this.trail.length > CONFIG.TRAIL_LEN * speedRatio) this.trail.shift();
+    }
+  }
+
+  updateAI(dt) {
+    this.aiTimer -= dt;
+    const head = this.head;
+
+    // Find nearest orb
+    let nearest = null, nearDist = Infinity;
+    for (const orb of game.orbs) {
+      const d = dist(head, orb);
+      if (d < nearDist) { nearDist = d; nearest = orb; }
+    }
+
+    if (nearest && nearDist < 600) {
+      this.aiTarget = {x:nearest.x, y:nearest.y};
+    } else if (this.aiTimer <= 0) {
+      this.aiWanderDir += rand(-0.5, 0.5);
+      this.aiTarget = {
+        x: head.x + Math.cos(this.aiWanderDir) * rand(200, 500),
+        y: head.y + Math.sin(this.aiWanderDir) * rand(200, 500)
+      };
+      this.aiTimer = rand(1, 3);
+    }
+
+    // Avoid walls
+    const margin = 200;
+    if (head.x < margin) this.aiTarget.x = head.x + 300;
+    if (head.x > CONFIG.WORLD_W - margin) this.aiTarget.x = head.x - 300;
+    if (head.y < margin) this.aiTarget.y = head.y + 300;
+    if (head.y > CONFIG.WORLD_H - margin) this.aiTarget.y = head.y - 300;
+
+    // Avoid other snakes
+    for (const other of game.snakes) {
+      if (other === this || !other.alive) continue;
+      const d = dist(head, other.head);
+      if (d < 150) {
+        const away = Math.atan2(head.y - other.head.y, head.x - other.head.x);
+        this.aiTarget = {
+          x: head.x + Math.cos(away) * 300,
+          y: head.y + Math.sin(away) * 300
+        };
+      }
+    }
+
+    this.angle = Math.atan2(this.aiTarget.y - head.y, this.aiTarget.x - head.x);
+  }
+
+  grow() {
+    const last = this.segments[this.segments.length-1];
+    for (let i = 0; i < 3; i++) {
+      this.segments.push({x:last.x + rand(-2,2), y:last.y + rand(-2,2)});
+    }
+    this.length = this.segments.length;
+  }
+
+  shrink(amount) {
+    amount = amount || Math.floor(this.segments.length * 0.5);
+    for (let i = 0; i < amount && this.segments.length > 3; i++) {
+      this.segments.pop();
+    }
+    this.length = this.segments.length;
+  }
+
+  draw(ctx) {
+    if (!this.alive) return;
+    const head = this.head;
+
+    // Draw trail
+    for (const t of this.trail) {
+      const alpha = t.life * 0.3;
+      const r = CONFIG.CELL_RADIUS * 0.6 * t.life * t.speed;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, r, 0, Math.PI*2);
+      ctx.fillStyle = this.isPlayer ? `rgba(255,215,0,${alpha*0.5})` : `rgba(200,200,255,${alpha*0.3})`;
+      ctx.fill();
+      t.life -= 0.08;
+    }
+
+    // Draw body segments (back to front)
+    const hue = this.isPlayer && game.rainbow ? (game.rainbowHue + 0) % 360 : this.hue;
+
+    for (let i = this.segments.length-1; i >= 0; i--) {
+      const seg = this.segments[i];
+      const isHead = (i === 0);
+      const radius = isHead ? CONFIG.CELL_RADIUS * 1.3 : CONFIG.CELL_RADIUS * (0.7 + 0.3 * (1 - i / this.segments.length));
+      const brightness = isHead ? 70 : 45 + 25 * (1 - i / this.segments.length);
+
+      let fillColor;
+      if (this.isPlayer && game.rainbow) {
+        const segHue = (game.rainbowHue + i * 8) % 360;
+        fillColor = `hsl(${segHue},100%,${brightness}%)`;
+      } else if (this.isPlayer && !game.rainbow) {
+        fillColor = `hsl(${this.hue},100%,${brightness}%)`;
+      } else {
+        fillColor = `hsl(${this.hue},50%,${brightness}%)`;
+      }
+
+      ctx.beginPath();
+      ctx.arc(seg.x, seg.y, radius, 0, Math.PI*2);
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+
+      // Outline
+      ctx.strokeStyle = `rgba(255,255,255,${isHead?0.3:0.1})`;
+      ctx.lineWidth = isHead ? 2 : 1;
+      ctx.stroke();
+
+      // Glow on head
+      if (isHead) {
+        ctx.beginPath();
+        ctx.arc(seg.x, seg.y, radius*2, 0, Math.PI*2);
+        const glow = ctx.createRadialGradient(seg.x, seg.y, radius*0.5, seg.x, seg.y, radius*2);
+        const col = this.isPlayer ? `hsl(${this.isPlayer && game.rainbow ? game.rainbowHue : this.hue},100%,60%)` : `hsl(${this.hue},80%,50%)`;
+        glow.addColorStop(0, col.replace('%)', '%,0.3)'));
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glow;
+        ctx.fill();
+      }
+    }
+
+    // Eyes on head
+    if (this.segments.length > 0 && this.isPlayer) {
+      const eyeOffset = CONFIG.CELL_RADIUS * 0.6;
+      const eyeR = CONFIG.CELL_RADIUS * 0.3;
+      for (let side = -1; side <= 1; side += 2) {
+        const ex = head.x + Math.cos(this.angle + side * 0.6) * eyeOffset;
+        const ey = head.y + Math.sin(this.angle + side * 0.6) * eyeOffset;
+        ctx.beginPath();
+        ctx.arc(ex, ey, eyeR, 0, Math.PI*2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(ex + Math.cos(this.angle) * eyeR*0.3, ey + Math.sin(this.angle) * eyeR*0.3, eyeR*0.4, 0, Math.PI*2);
+        ctx.fillStyle = '#111';
+        ctx.fill();
+      }
+    }
+
+    // Name tag
+    if (this.segments.length > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.font = `${this.isPlayer ? 'bold ' : ''}11px Arial`;
+      ctx.textAlign = 'center';
+      ctx.fillText(this.name, head.x, head.y - CONFIG.CELL_RADIUS * 2);
+    }
+  }
+
+  checkCollision(other) {
+    if (!this.alive || !other.alive || this === other) return false;
+    const head = this.head;
+    for (let i = 1; i < other.segments.length; i++) {
+      if (dist(head, other.segments[i]) < CONFIG.CELL_RADIUS * 1.5) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
-function loop(){update();draw();requestAnimationFrame(loop);}
-loop();
+
+// ─── ORBS ────────────────────────────────────────────────────────────
+function spawnOrb() {
+  return {
+    x: rand(50, CONFIG.WORLD_W-50),
+    y: rand(50, CONFIG.WORLD_H-50),
+    r: rand(4, 8),
+    pulse: rand(0, Math.PI*2),
+    color: CONFIG.COLORS[randInt(0, CONFIG.COLORS.length)]
+  };
+}
+
+function initOrbs() {
+  game.orbs = [];
+  for (let i = 0; i < CONFIG.ORB_COUNT; i++) game.orbs.push(spawnOrb());
+}
+
+// ─── PARTICLES ───────────────────────────────────────────────────────
+function spawnExplosion(x, y, color, count) {
+  count = count || CONFIG.PARTICLE_COUNT;
+  for (let i = 0; i < count; i++) {
+    const angle = rand(0, Math.PI*2);
+    const speed = rand(1, 6);
+    game.particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      decay: rand(0.01, 0.03),
+      r: rand(2, 5),
+      color: color || `hsl(${randInt(0,360)},100%,60%)`
+    });
+  }
+}
+
+function updateParticles() {
+  for (let i = game.particles.length-1; i >= 0; i--) {
+    const p = game.particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.98;
+    p.vy *= 0.98;
+    p.life -= p.decay;
+    if (p.life <= 0) game.particles.splice(i, 1);
+  }
+}
+
+function drawParticles(ctx) {
+  for (const p of game.particles) {
+    ctx.globalAlpha = p.life;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI*2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────
+function initGame() {
+  game.gameOver = false;
+  game.score = 0;
+  game.particles = [];
+  game.rainbow = false;
+
+  game.snakes = [];
+
+  // Player snake
+  const player = new Snake(CONFIG.WORLD_W/2, CONFIG.WORLD_H/2, true, 'YOU');
+  game.snakes.push(player);
+
+  // AI snakes
+  const aiNames = ['VENOM','FANG','VIPER','COBRA','ECHO','NOVA','SHADE','BLAZE'];
+  for (let i = 0; i < CONFIG.AI_COUNT; i++) {
+    const x = rand(200, CONFIG.WORLD_W-200);
+    const y = rand(200, CONFIG.WORLD_H-200);
+    const ai = new Snake(x, y, false, aiNames[i % aiNames.length]);
+    ai.angle = rand(0, Math.PI*2);
+    game.snakes.push(ai);
+  }
+
+  initOrbs();
+  game.camera = {x: player.head.x, y: player.head.y};
+  document.getElementById('deathScreen').style.display = 'none';
+}
+
+// ─── COLLISION & ORB EATING ─────────────────────────────────────────
+function checkOrbEating() {
+  const player = game.snakes[0];
+  for (let i = game.orbs.length-1; i >= 0; i--) {
+    const orb = game.orbs[i];
+    for (const snake of game.snakes) {
+      if (!snake.alive) continue;
+      const head = snake.head;
+      if (dist(head, orb) < CONFIG.CELL_RADIUS * 1.8) {
+        snake.grow();
+        if (snake.isPlayer) {
+          game.score = Math.floor(snake.length * 10);
+          spawnExplosion(orb.x, orb.y, orb.color, 8);
+        }
+        // Respawn orb elsewhere
+        game.orbs[i] = spawnOrb();
+        break;
+      }
+    }
+  }
+}
+
+function checkSnakeCollisions() {
+  const player = game.snakes[0];
+  for (let i = 0; i < game.snakes.length; i++) {
+    for (let j = i+1; j < game.snakes.length; j++) {
+      const a = game.snakes[i], b = game.snakes[j];
+      if (!a.alive || !b.alive) continue;
+
+      // If one is much bigger, it can eat the other
+      const aLen = a.segments.length, bLen = b.segments.length;
+      const ratio = Math.max(aLen, bLen) / Math.min(aLen, bLen);
+
+      if (ratio > 1.5) {
+        // Bigger one can kill smaller one
+        if (aLen > bLen && a.segments.length > 0) {
+          if (b.checkCollision(a)) {
+            b.alive = false;
+            spawnExplosion(b.head.x, b.head.y, b.color, 40);
+            a.grow();
+            a.grow();
+            if (a.isPlayer || b.isPlayer) {
+              if (b.isPlayer) {
+                gameOver(a);
+                return;
+              } else if (a.isPlayer) {
+                game.score = Math.floor(a.segments.length * 10);
+              }
+            }
+            // Respawn AI
+            if (!b.isPlayer) {
+              setTimeout(() => respawnAI(b), 2000);
+            }
+          }
+        } else if (bLen > aLen && b.segments.length > 0) {
+          if (a.checkCollision(b)) {
+            a.alive = false;
+            spawnExplosion(a.head.x, a.head.y, a.color, 40);
+            b.grow();
+            b.grow();
+            if (a.isPlayer || b.isPlayer) {
+              if (a.isPlayer) {
+                gameOver(b);
+                return;
+              } else if (b.isPlayer) {
+                game.score = Math.floor(b.segments.length * 10);
+              }
+            }
+            if (!a.isPlayer) {
+              setTimeout(() => respawnAI(a), 2000);
+            }
+          }
+        }
+      }
+
+      // Equal-ish sized - head-on collision kills both
+      if (a.segments.length > 0 && b.segments.length > 0) {
+        if (dist(a.head, b.head) < CONFIG.CELL_RADIUS * 2.0) {
+          // Only if they're moving toward each other
+          const dot = Math.cos(a.angle) * Math.cos(b.angle) + Math.sin(a.angle) * Math.sin(b.angle);
+          if (dot < -0.5) {
+            a.alive = false; b.alive = false;
+            spawnExplosion(a.head.x, a.head.y, a.color, 30);
+            spawnExplosion(b.head.x, b.head.y, b.color, 30);
+            if (a.isPlayer || b.isPlayer) {
+              const killer = game.snakes.find(s => s.alive) || player;
+              gameOver(killer);
+              return;
+            }
+            setTimeout(() => { if(!a.isPlayer) respawnAI(a); if(!b.isPlayer) respawnAI(b); }, 2000);
+          }
+        }
+      }
+    }
+  }
+}
+
+function respawnAI(ai) {
+  ai.alive = true;
+  ai.segments = [];
+  const startX = rand(200, CONFIG.WORLD_W-200);
+  const startY = rand(200, CONFIG.WORLD_H-200);
+  for (let i = 0; i < 6; i++) {
+    ai.segments.push({x: startX - i*CONFIG.CELL_RADIUS*0.8, y: startY});
+  }
+  ai.length = 6;
+  ai.color = CONFIG.COLORS[randInt(0, CONFIG.COLORS.length)];
+  ai.angle = rand(0, Math.PI*2);
+}
+
+function gameOver(killer) {
+  game.gameOver = true;
+  const player = game.snakes[0];
+  document.getElementById('finalScore').textContent = game.score;
+  document.getElementById('finalLength').textContent = player.length;
+  document.getElementById('deathScreen').style.display = 'flex';
+}
+
+// ─── UPDATE LEADERBOARD ──────────────────────────────────────────────
+function updateLeaderboard() {
+  const entries = game.snakes
+    .filter(s => s.alive)
+    .sort((a,b) => b.segments.length - a.segments.length)
+    .slice(0, 5);
+
+  const html = entries.map((s, i) => {
+    const isMe = s.isPlayer;
+    return `<div class="lb-entry${isMe?' me':''}">
+      <span class="lb-rank">${i+1}</span>
+      <span class="lb-name">${isMe ? '⭐ ' : ''}${s.name}</span>
+      <span class="lb-score">${s.segments.length}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('lbEntries').innerHTML = html;
+}
+
+// ─── DRAW ────────────────────────────────────────────────────────────
+function draw() {
+  ctx.fillStyle = '#0d0d1a';
+  ctx.fillRect(0, 0, W, H);
+
+  const player = game.snakes[0];
+
+  // Camera follows player
+  if (player.alive) {
+    game.camera.x = lerp(game.camera.x, player.head.x, CONFIG.FOLLOW_LERP);
+    game.camera.y = lerp(game.camera.y, player.head.y, CONFIG.FOLLOW_LERP);
+  }
+
+  ctx.save();
+  ctx.translate(W/2 - game.camera.x, H/2 - game.camera.y);
+
+  // ── World Grid ──
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  const gridSize = 100;
+  const startX = Math.floor((game.camera.x - W/2) / gridSize) * gridSize;
+  const startY = Math.floor((game.camera.y - H/2) / gridSize) * gridSize;
+  for (let x = startX; x < game.camera.x + W/2 + gridSize; x += gridSize) {
+    ctx.beginPath(); ctx.moveTo(x, Math.max(0, game.camera.y - H/2)); ctx.lineTo(x, Math.min(CONFIG.WORLD_H, game.camera.y + H/2)); ctx.stroke();
+  }
+  for (let y = startY; y < game.camera.y + H/2 + gridSize; y += gridSize) {
+    ctx.beginPath(); ctx.moveTo(Math.max(0, game.camera.x - W/2), y); ctx.lineTo(Math.min(CONFIG.WORLD_W, game.camera.x + W/2), y); ctx.stroke();
+  }
+
+  // World border
+  ctx.strokeStyle = 'rgba(255,50,50,0.5)';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(0, 0, CONFIG.WORLD_W, CONFIG.WORLD_H);
+
+  // ── Draw Orbs ──
+  const time = Date.now() / 1000;
+  for (const orb of game.orbs) {
+    // Frustum culling
+    if (orb.x < game.camera.x - W/2 - 20 || orb.x > game.camera.x + W/2 + 20 ||
+        orb.y < game.camera.y - H/2 - 20 || orb.y > game.camera.y + H/2 + 20) continue;
+
+    orb.pulse += 0.03;
+    const pr = orb.r + Math.sin(orb.pulse) * 1.5;
+
+    // Glow
+    const glow = ctx.createRadialGradient(orb.x, orb.y, 0, orb.x, orb.y, pr * 4);
+    glow.addColorStop(0, orb.color.replace(')', ',0.4)').replace('rgb', 'rgba'));
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(orb.x - pr*4, orb.y - pr*4, pr*8, pr*8);
+
+    // Core
+    ctx.beginPath();
+    ctx.arc(orb.x, orb.y, pr, 0, Math.PI*2);
+    ctx.fillStyle = orb.color;
+    ctx.fill();
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = orb.color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Shine
+    ctx.beginPath();
+    ctx.arc(orb.x - pr*0.2, orb.y - pr*0.2, pr*0.3, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fill();
+  }
+
+  // ── Draw Snakes ──
+  for (const snake of game.snakes) {
+    if (snake.alive) snake.draw(ctx);
+  }
+
+  // ── Draw Particles ──
+  drawParticles(ctx);
+
+  ctx.restore();
+
+  // ── Update UI ──
+  document.getElementById('scoreVal').textContent = game.score;
+  document.getElementById('lengthVal').textContent = player.length;
+
+  if (game.rainbow) game.rainbowHue = (game.rainbowHue + 0.5) % 360;
+
+  // ── Draw Minimap ──
+  drawMinimap();
+  updateLeaderboard();
+}
+
+// ─── MINIMAP ─────────────────────────────────────────────────────────
+function drawMinimap() {
+  const mc = minimapCtx;
+  const ms = CONFIG.MINIMAP_SIZE;
+  mc.fillStyle = 'rgba(0,0,0,0.85)';
+  mc.fillRect(0, 0, ms, ms);
+
+  const scale = ms / CONFIG.WORLD_W;
+
+  // Border
+  mc.strokeStyle = 'rgba(255,255,255,0.2)';
+  mc.lineWidth = 1;
+  mc.strokeRect(0, 0, ms, ms);
+
+  // Orbs (small dots)
+  for (const orb of game.orbs) {
+    mc.fillStyle = orb.color;
+    mc.fillRect(orb.x * scale, orb.y * scale, 1.5, 1.5);
+  }
+
+  // Snakes
+  for (const snake of game.snakes) {
+    if (!snake.alive) continue;
+    const head = snake.head;
+    mc.fillStyle = snake.isPlayer ? '#ffd700' : snake.color;
+    mc.beginPath();
+    mc.arc(head.x * scale, head.y * scale, snake.isPlayer ? 4 : 2.5, 0, Math.PI*2);
+    mc.fill();
+
+    // Body trail on minimap
+    if (snake.isPlayer) {
+      for (let i = 1; i < snake.segments.length && i < 15; i++) {
+        mc.fillStyle = 'rgba(255,215,0,0.3)';
+        mc.beginPath();
+        mc.arc(snake.segments[i].x * scale, snake.segments[i].y * scale, 1.5, 0, Math.PI*2);
+        mc.fill();
+      }
+    }
+  }
+
+  // Camera viewport rect
+  mc.strokeStyle = 'rgba(255,255,255,0.25)';
+  mc.lineWidth = 1;
+  mc.strokeRect(
+    (game.camera.x - W/2) * scale,
+    (game.camera.y - H/2) * scale,
+    W * scale,
+    H * scale
+  );
+}
+
+// ─── GAME LOOP ──────────────────────────────────────────────────────
+let lastTime = 0;
+
+function gameLoop(time) {
+  const dt = Math.min((time - lastTime) / 1000, 0.05);
+  lastTime = time;
+
+  if (!game.gameOver) {
+    const player = game.snakes[0];
+    if (player.alive) {
+      player.update(dt);
+    }
+    for (const snake of game.snakes) {
+      if (snake !== player && snake.alive) snake.update(dt);
+    }
+    checkOrbEating();
+    checkSnakeCollisions();
+    updateParticles();
+  }
+
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// ─── CONTROLS ────────────────────────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+  game.mouse.x = e.clientX + (game.camera.x - W/2);
+  game.mouse.y = e.clientY + (game.camera.y - H/2);
+});
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 0) game.mouseDown = true;
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (e.button === 0) game.mouseDown = false;
+});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  game.mouse.x = touch.clientX + (game.camera.x - W/2);
+  game.mouse.y = touch.clientY + (game.camera.y - H/2);
+}, {passive: false});
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  game.mouse.x = touch.clientX + (game.camera.x - W/2);
+  game.mouse.y = touch.clientY + (game.camera.y - H/2);
+}, {passive: false});
+
+// Multi-touch: use second finger for speed boost
+canvas.addEventListener('touchend', e => {
+  if (e.touches.length === 0) game.mouseDown = false;
+});
+
+canvas.addEventListener('touchcancel', () => game.mouseDown = false);
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); game.mouseDown = true; }
+  if (e.key === 'r' || e.key === 'R') game.rainbow = !game.rainbow;
+});
+
+document.addEventListener('keyup', e => {
+  if (e.code === 'Space') game.mouseDown = false;
+});
+
+// Restart
+document.getElementById('restartBtn').addEventListener('click', () => {
+  initGame();
+});
+
+// ─── RAINBOW TOGGLE BUTTON ─────────────────────────────────────────
+const rainbowBtn = document.createElement('div');
+rainbowBtn.style.cssText = 'position:fixed;bottom:60px;left:50%;transform:translateX(-50%);color:#aaa;font-size:.75rem;background:rgba(0,0,0,.5);padding:4px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.1);cursor:pointer;pointer-events:all;z-index:11';
+rainbowBtn.textContent = '🌈 RAINBOW: OFF (press R)';
+rainbowBtn.addEventListener('click', () => {
+  game.rainbow = !game.rainbow;
+  rainbowBtn.textContent = game.rainbow ? '🌈 RAINBOW: ON (press R)' : '🌈 RAINBOW: OFF (press R)';
+});
+document.body.appendChild(rainbowBtn);
+
+// ─── START ───────────────────────────────────────────────────────────
+initGame();
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
