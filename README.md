@@ -248,4 +248,29 @@ Output ONLY the complete HTML code.
 | 생성된 게임 | 10개 |
 | 수동 생성 | 테트리스, 팩맨, 스페이스 인베이더, 지뢰찾기, 2048, 플래피버드, 퐁, 버블 셔터 |
 | 자동 생성 | 마리오, 뱀 |
-| 비고 | 10개 브라우저 동시 실행 |
+|| 비고 | 10개 브라우저 동시 실행 |
+
+---
+
+## Day 4 — 2026-07-08
+
+| 항목 | 내용 |
+|------|------|
+| 생성 방식 | ChatGPT 크롤러 10개 동시 실행 + 수동 제작 |
+| 총 소요 시간 | 약 10분 |
+| 생성된 게임 | 10개 |
+| ChatGPT 생성 | 0개 (크롤러 전부 실패) |
+| 수동 생성 | Dino Run, Chess, Rhythm Game, Artillery, Dig Dug, Blackjack, Tower Defense, Bomberman, Slither.io, Paper.io |
+| 게임 목록 | |
+| day4_1 | 🦖 Dino Run — 크롬 공룡 달리기 |
+| day4_2 | ♟️ Chess — 체스 (AI 대전) |
+| day4_3 | 🎸 Neon Beat — 4레인 리듬 게임 |
+| day4_4 | 💥 Artillery — 탄막 포격전 |
+| day4_5 | ⛏️ Dig Dug — 땅파기 게임 |
+| day4_6 | 🃏 Blackjack — 카지노 카드게임 |
+| day4_7 | 🏰 Tower Defense — 타워 디펜스 |
+| day4_8 | 💣 Bomberman — 폭탄맨 |
+| day4_9 | 🐍 Slither.io — 뱀 키우기 |
+| day4_10 | 🎨 Paper.io — 영역 먹기 |
+| 총 코드 크기 | ~200KB+ |
+|
